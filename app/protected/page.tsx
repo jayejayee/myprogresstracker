@@ -1,43 +1,55 @@
 import { redirect } from "next/navigation";
-
-import { createClient } from "@/lib/supabase/server";
-import { InfoIcon } from "lucide-react";
-import { FetchDataSteps } from "@/components/tutorial/fetch-data-steps";
 import { Suspense } from "react";
 
-async function UserDetails() {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
+import { createClient } from "@/lib/supabase/server";
+import { TodoList } from "@/components/todo-list";
 
-  if (error || !data?.claims) {
+async function DashboardContent() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
     redirect("/auth/login");
   }
 
-  return JSON.stringify(data.claims, null, 2);
+  const name =
+    typeof user.user_metadata?.full_name === "string" &&
+    user.user_metadata.full_name.trim()
+      ? user.user_metadata.full_name.trim()
+      : user.email?.split("@")[0] ?? "there";
+
+  const { data, error } = await supabase
+    .from("todolist")
+    .select("id, todo, todoby, completedstatus, created_at")
+    .eq("userprofile", user.id)
+    .order("created_at", { ascending: false });
+
+  const todos = (data ?? []).map((todo) => ({
+    id: todo.id,
+    title: todo.todo,
+    dueDate: todo.todoby,
+    completed: todo.completedstatus,
+  }));
+
+  return (
+    <div>
+      <h1 className="py-4 text-3xl font-semibold">Welcome back, {name}</h1>
+      <TodoList
+        initialTodos={todos}
+        loadError={error ? "Could not load your tasks. Check the todolist columns and Supabase row-level security." : null}
+      />
+    </div>
+  );
 }
 
-export default function ProtectedPage() {
+export default function Home() {
   return (
-    <div className="flex-1 w-full flex flex-col gap-12">
-      <div className="w-full">
-        <div className="bg-accent text-sm p-3 px-5 rounded-md text-foreground flex gap-3 items-center">
-          <InfoIcon size="16" strokeWidth={2} />
-          This is a protected page that you can only see as an authenticated
-          user
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 items-start">
-        <h2 className="font-bold text-2xl mb-4">Your user details</h2>
-        <pre className="text-xs font-mono p-3 rounded border max-h-32 overflow-auto">
-          <Suspense>
-            <UserDetails />
-          </Suspense>
-        </pre>
-      </div>
-      <div>
-        <h2 className="font-bold text-2xl mb-4">Next steps</h2>
-        <FetchDataSteps />
-      </div>
-    </div>
+    <main className="mx-auto w-full max-w-2xl px-5 py-10">
+      <Suspense fallback={<p className="py-4 text-sm text-muted-foreground">Loading your tasks...</p>}>
+        <DashboardContent />
+      </Suspense>
+    </main>
   );
 }
