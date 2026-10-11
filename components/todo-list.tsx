@@ -10,9 +10,21 @@ import { FormEvent, useEffect, useState } from "react";
 
 function getLocalToday() {
   const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return formatLocalDate(now);
+}
+
+function formatLocalDate(date: Date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return localDate.toISOString().slice(0, 10);
 }
+
+function addDays(dateString: string, days: number) {
+  const date = new Date(`${dateString}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return formatLocalDate(date);
+}
+
+type DayFilter = "all" | "today" | "tomorrow" | "week" | "specific" | "unscheduled";
 
 type Todo = {
   id: number;
@@ -30,6 +42,8 @@ export function TodoList({ initialTodos, loadError }: TodoListProps) {
   const [todos, setTodos] = useState(initialTodos);
   const [newTitle, setNewTitle] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
+  const [dayFilter, setDayFilter] = useState<DayFilter>("all");
+  const [specificDate, setSpecificDate] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState(loadError);
@@ -37,6 +51,31 @@ export function TodoList({ initialTodos, loadError }: TodoListProps) {
   const progress = todos.length
     ? Math.round((completedCount / todos.length) * 100)
     : 0;
+  const today = getLocalToday();
+  const startOfWeek = new Date(`${today}T12:00:00`);
+  startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7));
+  const weekStart = formatLocalDate(startOfWeek);
+  const weekEnd = addDays(weekStart, 6);
+  const visibleTodos = todos
+    .filter((todo) => {
+      if (dayFilter === "all") return true;
+      if (dayFilter === "unscheduled") return todo.dueDate === null;
+      if (!todo.dueDate) return false;
+      if (dayFilter === "today") return todo.dueDate === today;
+      if (dayFilter === "tomorrow") return todo.dueDate === addDays(today, 1);
+      if (dayFilter === "week") {
+        return todo.dueDate >= weekStart && todo.dueDate <= weekEnd;
+      }
+      return todo.dueDate === specificDate;
+    })
+    .sort((first, second) => {
+      if (first.completed !== second.completed) {
+        return Number(first.completed) - Number(second.completed);
+      }
+      if (!first.dueDate) return second.dueDate ? 1 : 0;
+      if (!second.dueDate) return -1;
+      return first.dueDate.localeCompare(second.dueDate);
+    });
 
   useEffect(() => {
     setNewDueDate(getLocalToday());
@@ -153,6 +192,37 @@ export function TodoList({ initialTodos, loadError }: TodoListProps) {
         </Button>
       </form>
 
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <label htmlFor="todo-day-filter" className="text-sm font-medium">
+          Show
+        </label>
+        <select
+          id="todo-day-filter"
+          value={dayFilter}
+          onChange={(event) => setDayFilter(event.target.value as DayFilter)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="all">All tasks</option>
+          <option value="today">Today</option>
+          <option value="tomorrow">Tomorrow</option>
+          <option value="week">This week</option>
+          <option value="specific">Choose a day</option>
+          <option value="unscheduled">No due date</option>
+        </select>
+        {dayFilter === "specific" && (
+          <Input
+            type="date"
+            value={specificDate}
+            onChange={(event) => setSpecificDate(event.target.value)}
+            aria-label="Filter tasks by date"
+            className="w-40"
+          />
+        )}
+        <span className="text-sm text-muted-foreground">
+          {visibleTodos.length} {visibleTodos.length === 1 ? "task" : "tasks"}
+        </span>
+      </div>
+
       {errorMessage && (
         <p role="alert" className="mt-4 text-sm text-destructive">
           {errorMessage}
@@ -160,7 +230,7 @@ export function TodoList({ initialTodos, loadError }: TodoListProps) {
       )}
 
       <ul className="mt-4 divide-y">
-        {todos.map((todo) => (
+        {visibleTodos.map((todo) => (
           <li key={todo.id} className="flex min-h-14 items-center gap-3 py-2">
             <Checkbox
               id={`todo-${todo.id}`}
@@ -197,9 +267,11 @@ export function TodoList({ initialTodos, loadError }: TodoListProps) {
         ))}
       </ul>
 
-      {!todos.length && !errorMessage && (
+      {!visibleTodos.length && !errorMessage && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          No tasks yet. Add one above to get started.
+          {todos.length
+            ? "No tasks match this filter."
+            : "No tasks yet. Add one above to get started."}
         </p>
       )}
     </section>
