@@ -483,12 +483,12 @@ export function TodoList({
         aria-label="Main navigation"
         className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
       >
-        <div className="mx-auto flex max-w-2xl items-center justify-center gap-1 px-2 py-2">
+        <div className="mx-auto flex max-w-2xl items-center justify-center gap-1 px-2 py-3">
           <div className="grid w-full grid-cols-3 gap-1" role="group" aria-label="Sections">
             <Button
               type="button"
               variant={activeView === "projects" ? "secondary" : "ghost"}
-              className="w-full"
+              className="h-12 w-full"
               aria-current={activeView === "projects" ? "page" : undefined}
               onClick={() => {
                 setSelectedProjectId(null);
@@ -501,7 +501,7 @@ export function TodoList({
             <Button
               type="button"
               variant={activeView === "tasks" ? "secondary" : "ghost"}
-              className="w-full"
+              className="h-12 w-full"
               aria-current={activeView === "tasks" ? "page" : undefined}
               onClick={() => {
                 setSelectedProjectId(null);
@@ -514,7 +514,7 @@ export function TodoList({
             <Button
               type="button"
               variant={activeView === "profile" ? "secondary" : "ghost"}
-              className="w-full"
+              className="h-12 w-full"
               aria-current={activeView === "profile" ? "page" : undefined}
               onClick={() => setActiveView("profile")}
             >

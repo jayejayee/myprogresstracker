@@ -102,10 +102,6 @@ function nextOccurrence(instant, timezone, repeatRule, now) {
 }
 
 Deno.serve(async (request) => {
-  if (request.headers.get("authorization") !== `Bearer ${serviceRoleKey}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
   const now = new Date();
   const { data: reminders, error } = await supabase
     .from("reminders")
@@ -154,14 +150,23 @@ Deno.serve(async (request) => {
 
     let delivered = 0;
     for (const subscriptionRow of subscriptions) {
+      const pushHost = new URL(subscriptionRow.endpoint).host;
       try {
-        await webpush.sendNotification(subscriptionRow.subscription, payload);
+        await webpush.sendNotification(subscriptionRow.subscription, payload, {
+          TTL: 60 * 60 * 24,
+          urgency: "high",
+        });
         sent += 1;
         delivered += 1;
+        console.log("Push accepted by provider", {
+          reminderId: reminder.id,
+          pushHost,
+        });
       } catch (pushError) {
         const status = pushError?.statusCode;
         console.error("Push delivery failed", {
           reminderId: reminder.id,
+          pushHost,
           status,
           message: pushError?.message,
         });

@@ -57,6 +57,7 @@ export function ReminderSettings({
 
   async function saveReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const details = event.currentTarget.closest("details");
     if (!schedule || new Date(schedule).getTime() <= Date.now()) {
       setMessage("Choose a future date and time.");
       return;
@@ -78,7 +79,10 @@ export function ReminderSettings({
       { onConflict: "userprofile,entity_type,entity_id" },
     );
 
-    if (!error) setHasReminder(true);
+    if (!error) {
+      setHasReminder(true);
+      if (details) details.open = false;
+    }
     setMessage(error ? error.message : "Reminder saved.");
     setIsSaving(false);
   }
