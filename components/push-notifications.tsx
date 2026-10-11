@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { Bell, BellRing } from "lucide-react";
+import { Bell, BellRing, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function decodeVapidKey(key: string) {
@@ -33,7 +33,7 @@ export function PushNotifications() {
     };
   }, []);
 
-  async function enableNotifications() {
+  async function enableNotifications(refresh = false) {
     if (!vapidKey) {
       setMessage("Push notifications are not configured on the app yet.");
       return;
@@ -52,14 +52,26 @@ export function PushNotifications() {
       }
 
       const registration = await navigator.serviceWorker.register("/sw.js");
-      const subscription =
-        (await registration.pushManager.getSubscription()) ??
-        (await registration.pushManager.subscribe({
+      let subscription = await registration.pushManager.getSubscription();
+      const supabase = createClient();
+
+      if (subscription && refresh) {
+        const { error } = await supabase
+          .from("push_subscriptions")
+          .delete()
+          .eq("endpoint", subscription.endpoint);
+        if (error) throw error;
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: decodeVapidKey(vapidKey) as BufferSource,
-        }));
+        });
+      }
 
-      const supabase = createClient();
       const { error } = await supabase.from("push_subscriptions").upsert(
         {
           endpoint: subscription.endpoint,
@@ -70,7 +82,7 @@ export function PushNotifications() {
       if (error) throw error;
 
       setIsEnabled(true);
-      setMessage("This device is ready for reminders.");
+      setMessage(refresh ? "This device's reminder subscription was refreshed." : "This device is ready for reminders.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not enable notifications.");
     } finally {
@@ -115,10 +127,21 @@ export function PushNotifications() {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={enableNotifications} disabled={isEnabling || isEnabled}>
+        <Button type="button" onClick={() => enableNotifications()} disabled={isEnabling || isEnabled}>
           <BellRing aria-hidden="true" />
           {isEnabled ? "Notifications enabled on this device" : isEnabling ? "Enabling..." : "Enable phone notifications"}
         </Button>
+        {isEnabled && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => enableNotifications(true)}
+            disabled={isEnabling}
+          >
+            <RefreshCw aria-hidden="true" />
+            {isEnabling ? "Refreshing..." : "Refresh this device"}
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
