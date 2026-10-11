@@ -145,6 +145,37 @@ Deno.serve(async (request) => {
 
     if (subscriptionError || !subscriptions?.length) continue;
 
+    const payload = JSON.stringify({
+      title: reminder.entity_title,
+      body: reminder.entity_type === "project" ? "Your project reminder is due." : "Your task reminder is due.",
+      url: "/protected",
+      tag: `${reminder.entity_type}-${reminder.entity_id}`,
+    });
+
+    let delivered = 0;
+    for (const subscriptionRow of subscriptions) {
+      try {
+        await webpush.sendNotification(subscriptionRow.subscription, payload);
+        sent += 1;
+        delivered += 1;
+      } catch (pushError) {
+        const status = pushError?.statusCode;
+        console.error("Push delivery failed", {
+          reminderId: reminder.id,
+          status,
+          message: pushError?.message,
+        });
+        if (status === 404 || status === 410) {
+          await supabase
+            .from("push_subscriptions")
+            .delete()
+            .eq("endpoint", subscriptionRow.endpoint);
+        }
+      }
+    }
+
+    if (delivered === 0) continue;
+
     const next = nextOccurrence(
       reminder.next_at,
       reminder.timezone,
@@ -159,30 +190,16 @@ Deno.serve(async (request) => {
       .select("id")
       .maybeSingle();
 
-    if (claimError || !claimed) continue;
-
-    const payload = JSON.stringify({
-      title: reminder.entity_title,
-      body: reminder.entity_type === "project" ? "Your project reminder is due." : "Your task reminder is due.",
-      url: "/protected",
-      tag: `${reminder.entity_type}-${reminder.entity_id}`,
-    });
-
-    for (const subscriptionRow of subscriptions) {
-      try {
-        await webpush.sendNotification(subscriptionRow.subscription, payload);
-        sent += 1;
-      } catch (pushError) {
-        const status = pushError?.statusCode;
-        if (status === 404 || status === 410) {
-          await supabase
-            .from("push_subscriptions")
-            .delete()
-            .eq("endpoint", subscriptionRow.endpoint);
-        }
-      }
+    if (claimError) {
+      console.error("Could not advance delivered reminder", {
+        reminderId: reminder.id,
+        message: claimError.message,
+      });
+    } else if (!claimed) {
+      console.warn("Reminder was updated by another sender", { reminderId: reminder.id });
     }
   }
 
+  console.log("Reminder check complete", { due: reminders?.length ?? 0, sent });
   return Response.json({ sent });
 });
