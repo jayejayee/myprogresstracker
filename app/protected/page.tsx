@@ -19,12 +19,12 @@ async function DashboardContent() {
     typeof user.user_metadata?.full_name === "string" &&
     user.user_metadata.full_name.trim()
       ? user.user_metadata.full_name.trim()
-      : user.email?.split("@")[0] ?? "there";
+      : null;
 
   const [todoResult, projectResult, reminderResult] = await Promise.all([
     supabase
       .from("todolist")
-      .select("id, todo, todoby, completedstatus, projectid, created_at")
+      .select("id, todo, todoby, completedstatus, projectid, priority, created_at")
       .eq("userprofile", user.id)
       .order("created_at", { ascending: false }),
     supabase
@@ -45,6 +45,7 @@ async function DashboardContent() {
     dueDate: todo.todoby,
     completed: todo.completedstatus,
     projectId: todo.projectid,
+    priority: todo.priority as "high" | "medium" | "low",
   }));
   const projects = (projectResult.data ?? []).map((project) => ({
     id: project.id,
@@ -62,12 +63,11 @@ async function DashboardContent() {
 
   return (
     <div>
-      <h1 className="py-4 text-3xl font-semibold">Welcome back, {name}</h1>
       <TodoList
         initialTodos={todos}
         initialProjects={projects}
         initialReminders={reminders}
-        profileName={name}
+        profileName={name ?? "Not set"}
         profileEmail={user.email ?? ""}
         logoutAction={<LogoutButton />}
         loadError={todoResult.error || projectResult.error || reminderResult.error ? "Could not load your tasks, projects, or reminders. Check the Supabase tables and row-level security." : null}

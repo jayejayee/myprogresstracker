@@ -3,11 +3,19 @@
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { DottedProgress } from "@/components/dotted-progress";
 import { ReminderSettings, type Reminder } from "@/components/reminder-settings";
 import { PushNotifications } from "@/components/push-notifications";
-import { ArrowLeft, CalendarDays, FolderOpen, FolderPlus, FolderKanban, ListTodo, Plus, Search, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, FolderKanban, ListTodo, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 function getLocalToday() {
@@ -27,6 +35,19 @@ function addDays(dateString: string, days: number) {
 }
 
 type DayFilter = "all" | "today" | "tomorrow" | "week" | "specific" | "unscheduled";
+type Priority = "high" | "medium" | "low";
+
+const priorityDotClass: Record<Priority, string> = {
+  high: "bg-red-500",
+  medium: "bg-yellow-400",
+  low: "bg-emerald-500",
+};
+
+const priorityLabel: Record<Priority, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
 
 type Todo = {
   id: number;
@@ -34,6 +55,7 @@ type Todo = {
   dueDate: string | null;
   completed: boolean;
   projectId: number | null;
+  priority: Priority;
 };
 
 type Project = {
@@ -63,6 +85,7 @@ export function TodoList({
 }: TodoListProps) {
   const [todos, setTodos] = useState(initialTodos);
   const [projects, setProjects] = useState(initialProjects);
+  const [showWelcome, setShowWelcome] = useState(true);
   const [activeView, setActiveView] = useState<"projects" | "tasks" | "profile">("projects");
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
@@ -71,7 +94,9 @@ export function TodoList({
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
+  const [newPriority, setNewPriority] = useState<Priority>("medium");
   const [dayFilter, setDayFilter] = useState<DayFilter>("all");
+  const [sortBy, setSortBy] = useState<"priority" | "dueDate">("priority");
   const [specificDate, setSpecificDate] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
@@ -99,12 +124,26 @@ export function TodoList({
       return todo.dueDate === specificDate;
     })
     .sort((first, second) => {
-      if (first.completed !== second.completed) {
-        return Number(first.completed) - Number(second.completed);
+      const priorityOrder: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+      if (sortBy === "priority") {
+        if (first.priority !== second.priority) {
+          return priorityOrder[first.priority] - priorityOrder[second.priority];
+        }
+        if (first.completed !== second.completed) {
+          return Number(first.completed) - Number(second.completed);
+        }
+      } else {
+        if (first.completed !== second.completed) {
+          return Number(first.completed) - Number(second.completed);
+        }
+        if (!first.dueDate && second.dueDate) return 1;
+        if (first.dueDate && !second.dueDate) return -1;
+        if (first.dueDate && second.dueDate) {
+          const dueDateOrder = first.dueDate.localeCompare(second.dueDate);
+          if (dueDateOrder !== 0) return dueDateOrder;
+        }
       }
-      if (!first.dueDate) return second.dueDate ? 1 : 0;
-      if (!second.dueDate) return -1;
-      return first.dueDate.localeCompare(second.dueDate);
+      return priorityOrder[first.priority] - priorityOrder[second.priority];
     });
   const completedCount = visibleTodos.filter((todo) => todo.completed).length;
   const progress = visibleTodos.length
@@ -142,6 +181,7 @@ export function TodoList({
       setSelectedProjectId(data.id);
       setDayFilter("all");
       setActiveView("tasks");
+      setShowWelcome(false);
     }
     setIsAddingProject(false);
   }
@@ -156,8 +196,13 @@ export function TodoList({
     const supabase = createClient();
     const { data, error } = await supabase
       .from("todolist")
-      .insert({ todo: title, todoby: newDueDate || null, projectid: selectedProjectId })
-      .select("id, todo, todoby, completedstatus, projectid")
+      .insert({
+        todo: title,
+        todoby: newDueDate || null,
+        projectid: selectedProjectId,
+        priority: newPriority,
+      })
+      .select("id, todo, todoby, completedstatus, projectid, priority")
       .single();
 
     if (error) {
@@ -170,11 +215,13 @@ export function TodoList({
           dueDate: data.todoby,
           completed: data.completedstatus,
           projectId: data.projectid,
+          priority: data.priority as Priority,
         },
         ...currentTodos,
       ]);
       setNewTitle("");
       setNewDueDate(getLocalToday());
+      setNewPriority("medium");
     }
     setIsAdding(false);
   }
@@ -196,6 +243,29 @@ export function TodoList({
       setTodos((currentTodos) =>
         currentTodos.map((item) =>
           item.id === todo.id ? { ...item, completed } : item,
+        ),
+      );
+    }
+    setPendingId(null);
+  }
+
+  async function updatePriority(todo: Todo, priority: Priority) {
+    if (pendingId || todo.priority === priority) return;
+
+    setPendingId(todo.id);
+    setErrorMessage(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("todolist")
+      .update({ priority })
+      .eq("id", todo.id);
+
+    if (error) {
+      setErrorMessage(error.message);
+    } else {
+      setTodos((currentTodos) =>
+        currentTodos.map((item) =>
+          item.id === todo.id ? { ...item, priority } : item,
         ),
       );
     }
@@ -230,6 +300,9 @@ export function TodoList({
 
   return (
     <>
+      {showWelcome && (
+        <h1 className="py-4 text-3xl font-semibold">Welcome back!</h1>
+      )}
       <section className="mt-3 pb-24">
         {errorMessage && (
           <p role="alert" className="mb-4 text-sm text-destructive">
@@ -290,6 +363,7 @@ export function TodoList({
                           setSelectedProjectId(project.id);
                           setActiveView("tasks");
                           setDayFilter("all");
+                          setShowWelcome(false);
                         }}
                         className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left hover:bg-accent/50"
                       >
@@ -351,6 +425,7 @@ export function TodoList({
                   onClick={() => {
                     setSelectedProjectId(null);
                     setActiveView("projects");
+                    setShowWelcome(false);
                   }}
                 >
                   <ArrowLeft aria-hidden="true" />
@@ -391,6 +466,19 @@ export function TodoList({
                 aria-label="Task due date"
                 className="w-40"
               />
+              <label htmlFor="new-task-priority" className="sr-only">
+                New task priority
+              </label>
+              <select
+                id="new-task-priority"
+                value={newPriority}
+                onChange={(event) => setNewPriority(event.target.value as Priority)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="high">High priority</option>
+                <option value="medium">Medium priority</option>
+                <option value="low">Low priority</option>
+              </select>
               <Button type="submit" disabled={isAdding || !newTitle.trim()}>
                 <Plus aria-hidden="true" />
                 Add
@@ -424,6 +512,24 @@ export function TodoList({
               <span className="text-sm text-muted-foreground">
                 {visibleTodos.length} {visibleTodos.length === 1 ? "task" : "tasks"}
               </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    <ArrowUpDown aria-hidden="true" />
+                    Sort: {sortBy === "priority" ? "Priority" : "Due date"}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Sort tasks by</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={sortBy}
+                    onValueChange={(value) => setSortBy(value as "priority" | "dueDate")}
+                  >
+                    <DropdownMenuRadioItem value="priority">Priority</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="dueDate">Due date</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <ul className="mt-4 divide-y">
@@ -435,6 +541,40 @@ export function TodoList({
                     disabled={pendingId === todo.id}
                     onCheckedChange={(checked) => toggleTodo(todo, checked === true)}
                   />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`${priorityLabel[todo.priority]} priority. Change priority for ${todo.title}`}
+                        disabled={pendingId === todo.id}
+                        className="size-8 shrink-0"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`size-3 rounded-full ${priorityDotClass[todo.priority]}`}
+                        />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Task priority</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={todo.priority}
+                        onValueChange={(value) => updatePriority(todo, value as Priority)}
+                      >
+                        {(["high", "medium", "low"] as const).map((priority) => (
+                          <DropdownMenuRadioItem key={priority} value={priority}>
+                            <span
+                              aria-hidden="true"
+                              className={`size-2.5 rounded-full ${priorityDotClass[priority]}`}
+                            />
+                            {priorityLabel[priority]}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <div className="flex-1">
                     <label
                       htmlFor={`todo-${todo.id}`}
@@ -493,6 +633,7 @@ export function TodoList({
               onClick={() => {
                 setSelectedProjectId(null);
                 setActiveView("projects");
+                setShowWelcome(false);
               }}
             >
               <FolderKanban aria-hidden="true" />
@@ -506,6 +647,7 @@ export function TodoList({
               onClick={() => {
                 setSelectedProjectId(null);
                 setActiveView("tasks");
+                setShowWelcome(false);
               }}
             >
               <ListTodo aria-hidden="true" />
@@ -516,7 +658,10 @@ export function TodoList({
               variant={activeView === "profile" ? "secondary" : "ghost"}
               className="h-12 w-full"
               aria-current={activeView === "profile" ? "page" : undefined}
-              onClick={() => setActiveView("profile")}
+              onClick={() => {
+                setActiveView("profile");
+                setShowWelcome(false);
+              }}
             >
               <UserRound aria-hidden="true" />
               Profile
