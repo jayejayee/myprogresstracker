@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { BellRing } from "lucide-react";
+import { Bell, BellRing } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function decodeVapidKey(key: string) {
@@ -14,6 +14,7 @@ function decodeVapidKey(key: string) {
 export function PushNotifications() {
   const [isEnabled, setIsEnabled] = useState(false);
   const [isEnabling, setIsEnabling] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -77,12 +78,57 @@ export function PushNotifications() {
     }
   }
 
+  async function sendTestNotification() {
+    if (!isEnabled) {
+      setMessage("Enable phone notifications on this device first.");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      setMessage("Notifications are blocked in this browser's settings.");
+      return;
+    }
+
+    setIsTesting(true);
+    setMessage(null);
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = await registration?.pushManager.getSubscription();
+      if (!registration || !subscription) {
+        setIsEnabled(false);
+        throw new Error("This device is not subscribed. Enable phone notifications again.");
+      }
+
+      await registration.showNotification("Test reminder", {
+        body: "Notifications are working on this device.",
+        icon: "/opengraph-image.png",
+        data: { url: "/protected" },
+        tag: "test-reminder",
+      });
+      setMessage("Test notification sent to this device.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not show a test notification.");
+    } finally {
+      setIsTesting(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
-      <Button type="button" onClick={enableNotifications} disabled={isEnabling || isEnabled}>
-        <BellRing aria-hidden="true" />
-        {isEnabled ? "Notifications enabled on this device" : isEnabling ? "Enabling..." : "Enable phone notifications"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={enableNotifications} disabled={isEnabling || isEnabled}>
+          <BellRing aria-hidden="true" />
+          {isEnabled ? "Notifications enabled on this device" : isEnabling ? "Enabling..." : "Enable phone notifications"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={sendTestNotification}
+          disabled={!isEnabled || isTesting}
+        >
+          <Bell aria-hidden="true" />
+          {isTesting ? "Sending test..." : "Send test notification"}
+        </Button>
+      </div>
       {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
     </div>
   );
