@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
 import { TodoList } from "@/components/todo-list";
+import { LogoutButton } from "@/components/logout-button";
 
 async function DashboardContent() {
   const supabase = await createClient();
@@ -20,17 +21,43 @@ async function DashboardContent() {
       ? user.user_metadata.full_name.trim()
       : user.email?.split("@")[0] ?? "there";
 
-  const { data, error } = await supabase
-    .from("todolist")
-    .select("id, todo, todoby, completedstatus, created_at")
-    .eq("userprofile", user.id)
-    .order("created_at", { ascending: false });
+  const [todoResult, projectResult, reminderResult] = await Promise.all([
+    supabase
+      .from("todolist")
+      .select("id, todo, todoby, completedstatus, projectid, created_at")
+      .eq("userprofile", user.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("projects")
+      .select("id, name, due_date")
+      .eq("userprofile", user.id)
+      .order("due_date", { ascending: true }),
+    supabase
+      .from("reminders")
+      .select("entity_type, entity_id, entity_title, next_at, repeat_rule, timezone")
+      .eq("userprofile", user.id)
+      .eq("enabled", true),
+  ]);
 
-  const todos = (data ?? []).map((todo) => ({
+  const todos = (todoResult.data ?? []).map((todo) => ({
     id: todo.id,
     title: todo.todo,
     dueDate: todo.todoby,
     completed: todo.completedstatus,
+    projectId: todo.projectid,
+  }));
+  const projects = (projectResult.data ?? []).map((project) => ({
+    id: project.id,
+    name: project.name,
+    dueDate: project.due_date,
+  }));
+  const reminders = (reminderResult.data ?? []).map((reminder) => ({
+    entityType: reminder.entity_type as "task" | "project",
+    entityId: reminder.entity_id,
+    title: reminder.entity_title,
+    nextAt: reminder.next_at,
+    repeatRule: reminder.repeat_rule as "once" | "daily" | "weekly" | "monthly",
+    timezone: reminder.timezone,
   }));
 
   return (
@@ -38,7 +65,12 @@ async function DashboardContent() {
       <h1 className="py-4 text-3xl font-semibold">Welcome back, {name}</h1>
       <TodoList
         initialTodos={todos}
-        loadError={error ? "Could not load your tasks. Check the todolist columns and Supabase row-level security." : null}
+        initialProjects={projects}
+        initialReminders={reminders}
+        profileName={name}
+        profileEmail={user.email ?? ""}
+        logoutAction={<LogoutButton />}
+        loadError={todoResult.error || projectResult.error || reminderResult.error ? "Could not load your tasks, projects, or reminders. Check the Supabase tables and row-level security." : null}
       />
     </div>
   );
