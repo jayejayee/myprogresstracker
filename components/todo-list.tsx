@@ -92,6 +92,8 @@ export function TodoList({
   const [newProjectDueDate, setNewProjectDueDate] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [isAddingProject, setIsAddingProject] = useState(false);
+  const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
+  const projectDialogRef = useRef<HTMLDialogElement>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newPriority, setNewPriority] = useState<Priority>("medium");
@@ -165,6 +167,14 @@ export function TodoList({
     if (!isAddTaskOpen && dialog.open) dialog.close();
   }, [isAddTaskOpen]);
 
+  useEffect(() => {
+    const dialog = projectDialogRef.current;
+    if (!dialog) return;
+
+    if (isAddProjectOpen && !dialog.open) dialog.showModal();
+    if (!isAddProjectOpen && dialog.open) dialog.close();
+  }, [isAddProjectOpen]);
+
   async function addProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = newProjectName.trim();
@@ -188,6 +198,7 @@ export function TodoList({
       );
       setNewProjectName("");
       setNewProjectDueDate(getLocalToday());
+      setIsAddProjectOpen(false);
       setSelectedProjectId(data.id);
       setDayFilter("all");
       setActiveView("tasks");
@@ -324,43 +335,90 @@ export function TodoList({
         {activeView === "projects" ? (
           <div>
             <h2 className="mb-4 text-lg font-semibold">Projects</h2>
-            <form onSubmit={addProject} className="flex flex-wrap gap-2">
-              <Input
-                value={newProjectName}
-                onChange={(event) => setNewProjectName(event.target.value)}
-                placeholder="New project name"
-                aria-label="New project name"
-                maxLength={120}
-                required
-                className="min-w-40 flex-1"
-              />
-              <Input
-                type="date"
-                value={newProjectDueDate}
-                onChange={(event) => setNewProjectDueDate(event.target.value)}
-                aria-label="Project due date"
-                required
-                className="w-40"
-              />
-              <Button type="submit" disabled={isAddingProject || !newProjectName.trim()}>
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  type="search"
+                  value={projectSearch}
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                  placeholder="Search projects"
+                  aria-label="Search projects"
+                  className="pl-9"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={() => setIsAddProjectOpen(true)}
+                className="shrink-0"
+              >
                 <FolderPlus aria-hidden="true" />
-                Add project
+                <span className="hidden sm:inline">Add project</span>
+                <span className="sm:hidden">Add</span>
               </Button>
-            </form>
-            <div className="relative mt-4">
-              <Search
-                aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                type="search"
-                value={projectSearch}
-                onChange={(event) => setProjectSearch(event.target.value)}
-                placeholder="Search projects"
-                aria-label="Search projects"
-                className="pl-9"
-              />
             </div>
+            <dialog
+              ref={projectDialogRef}
+              aria-labelledby="add-project-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                setIsAddProjectOpen(false);
+              }}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setIsAddProjectOpen(false);
+              }}
+              className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-lg border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50"
+            >
+              <form onSubmit={addProject} className="space-y-5 p-5">
+                <div>
+                  <h3 id="add-project-title" className="text-lg font-semibold">New project</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Give your project a name and due date.
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Project name
+                    <Input
+                      autoFocus
+                      value={newProjectName}
+                      onChange={(event) => setNewProjectName(event.target.value)}
+                      placeholder="What are you working on?"
+                      maxLength={120}
+                      required
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Due date
+                    <Input
+                      type="date"
+                      value={newProjectDueDate}
+                      onChange={(event) => setNewProjectDueDate(event.target.value)}
+                      aria-label="Project due date"
+                      required
+                      className="box-border h-9 min-h-0 w-full min-w-0 max-w-full appearance-none px-3 py-0 text-base leading-9 md:text-sm [&::-webkit-date-and-time-value]:min-h-0 [&::-webkit-date-and-time-value]:text-left"
+                    />
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 border-t pt-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsAddProjectOpen(false)}
+                    disabled={isAddingProject}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isAddingProject || !newProjectName.trim() || !newProjectDueDate}>
+                    <FolderPlus aria-hidden="true" />
+                    {isAddingProject ? "Creating..." : "Create project"}
+                  </Button>
+                </div>
+              </form>
+            </dialog>
             {filteredProjects.length ? (
               <ul className="mt-4 divide-y">
                 {filteredProjects.map((project) => {
