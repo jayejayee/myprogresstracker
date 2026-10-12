@@ -498,7 +498,7 @@ export function TodoList({
                       value={newDueDate}
                       onChange={(event) => setNewDueDate(event.target.value)}
                       aria-label="Task due date"
-                      className="box-border h-9 w-full min-w-0 max-w-full"
+                      className="box-border h-9 min-h-0 w-full min-w-0 max-w-full appearance-none px-3 py-0 text-base leading-9 md:text-sm [&::-webkit-date-and-time-value]:min-h-0 [&::-webkit-date-and-time-value]:text-left"
                     />
                   </label>
                   <label className="grid gap-1.5 text-sm font-medium">
