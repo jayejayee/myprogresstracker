@@ -47,7 +47,18 @@ create policy "Users can manage their own todos"
   for all
   to authenticated
   using ((select auth.uid())::text = userprofile)
-  with check ((select auth.uid())::text = userprofile);
+  with check (
+    (select auth.uid())::text = userprofile
+    and (
+      projectid is null
+      or exists (
+        select 1
+        from public.projects as owned_project
+        where owned_project.id = todolist.projectid
+          and owned_project.userprofile = (select auth.uid())::text
+      )
+    )
+  );
 
 grant select, insert, update, delete on table public.todolist to authenticated;
 grant select, insert, update, delete on table public.projects to authenticated;

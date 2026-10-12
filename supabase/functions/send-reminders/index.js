@@ -101,7 +101,48 @@ function nextOccurrence(instant, timezone, repeatRule, now) {
   return next;
 }
 
+function getVerifiedRole(request) {
+  const authorization = request.headers.get("authorization");
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const payload = token?.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")));
+    return claims.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedPushEndpoint(endpoint) {
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== "https:" || url.port || url.username || url.password) {
+    return false;
+  }
+  const hostname = url.hostname.toLowerCase();
+  return (
+    hostname === "fcm.googleapis.com" ||
+    hostname === "web.push.apple.com" ||
+    hostname === "push.services.mozilla.com" ||
+    hostname.endsWith(".push.services.mozilla.com") ||
+    hostname.endsWith(".notify.windows.com")
+  );
+}
+
 Deno.serve(async (request) => {
+  // Supabase verifies the JWT signature before invoking this function.
+  if (getVerifiedRole(request) !== "service_role") {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   const now = new Date();
   const { data: reminders, error } = await supabase
     .from("reminders")
@@ -150,6 +191,17 @@ Deno.serve(async (request) => {
 
     let delivered = 0;
     for (const subscriptionRow of subscriptions) {
+      if (!isTrustedPushEndpoint(subscriptionRow.endpoint)) {
+        console.error("Rejected untrusted push endpoint", {
+          reminderId: reminder.id,
+        });
+        await supabase
+          .from("push_subscriptions")
+          .delete()
+          .eq("endpoint", subscriptionRow.endpoint);
+        continue;
+      }
+
       const pushHost = new URL(subscriptionRow.endpoint).host;
       try {
         await webpush.sendNotification(subscriptionRow.subscription, payload, {

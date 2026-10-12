@@ -444,6 +444,13 @@ export function TodoList({
                           </span>
                         </span>
                       </button>
+                      <DottedProgress
+                        progress={projectTodos.length
+                          ? Math.round((doneCount / projectTodos.length) * 100)
+                          : 0}
+                        size="compact"
+                        dotCount={16}
+                      />
                       <ReminderSettings
                         entityType="project"
                         entityId={project.id}
