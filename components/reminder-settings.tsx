@@ -109,7 +109,7 @@ export function ReminderSettings({
         className="flex h-9 cursor-pointer list-none items-center justify-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&::-webkit-details-marker]:hidden"
       >
         <BellPlus aria-hidden="true" className="size-4" />
-        <span className="ml-2 sm:hidden">Reminder</span>
+        <span className="ml-2 sm:hidden"></span>
       </summary>
       <form
         onSubmit={saveReminder}
