@@ -16,7 +16,7 @@ import { DottedProgress } from "@/components/dotted-progress";
 import { ReminderSettings, type Reminder } from "@/components/reminder-settings";
 import { PushNotifications } from "@/components/push-notifications";
 import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, FolderKanban, ListTodo, Plus, Search, Trash2, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 function getLocalToday() {
   const now = new Date();
@@ -95,6 +95,8 @@ export function TodoList({
   const [newTitle, setNewTitle] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newPriority, setNewPriority] = useState<Priority>("medium");
+  const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
+  const taskDialogRef = useRef<HTMLDialogElement>(null);
   const [dayFilter, setDayFilter] = useState<DayFilter>("all");
   const [sortBy, setSortBy] = useState<"priority" | "dueDate">("priority");
   const [specificDate, setSpecificDate] = useState("");
@@ -154,6 +156,14 @@ export function TodoList({
     setNewDueDate(getLocalToday());
     setNewProjectDueDate(getLocalToday());
   }, []);
+
+  useEffect(() => {
+    const dialog = taskDialogRef.current;
+    if (!dialog) return;
+
+    if (isAddTaskOpen && !dialog.open) dialog.showModal();
+    if (!isAddTaskOpen && dialog.open) dialog.close();
+  }, [isAddTaskOpen]);
 
   async function addProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -222,6 +232,7 @@ export function TodoList({
       setNewTitle("");
       setNewDueDate(getLocalToday());
       setNewPriority("medium");
+      setIsAddTaskOpen(false);
     }
     setIsAdding(false);
   }
@@ -449,49 +460,84 @@ export function TodoList({
               <DottedProgress progress={progress} />
             </div>
 
-            <form onSubmit={addTodo} className="flex flex-wrap gap-2">
-              <Input
-                value={newTitle}
-                onChange={(event) => setNewTitle(event.target.value)}
-                placeholder={selectedProject ? `Add a task to ${selectedProject.name}` : "Add an unassigned task"}
-                aria-label={selectedProject ? `New task for ${selectedProject.name}` : "New unassigned task"}
-                maxLength={200}
-                required
-                className="min-w-40 flex-1"
-              />
-              <Input
-                type="date"
-                value={newDueDate}
-                onChange={(event) => setNewDueDate(event.target.value)}
-                aria-label="Task due date"
-                className="w-40"
-              />
-              <label htmlFor="new-task-priority" className="sr-only">
-                New task priority
-              </label>
-              <select
-                id="new-task-priority"
-                value={newPriority}
-                onChange={(event) => setNewPriority(event.target.value as Priority)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="high">High priority</option>
-                <option value="medium">Medium priority</option>
-                <option value="low">Low priority</option>
-              </select>
-              <Button type="submit" disabled={isAdding || !newTitle.trim()}>
-                <Plus aria-hidden="true" />
-                Add
-              </Button>
-            </form>
+            <dialog
+              ref={taskDialogRef}
+              aria-labelledby="add-task-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                setIsAddTaskOpen(false);
+              }}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setIsAddTaskOpen(false);
+              }}
+              className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-lg border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50"
+            >
+              <form onSubmit={addTodo} className="space-y-5 p-5">
+                <div>
+                  <h3 id="add-task-title" className="text-lg font-semibold">New task</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {selectedProject ? `For ${selectedProject.name}` : "Add a task to your list"}
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Task
+                    <Input
+                      autoFocus
+                      value={newTitle}
+                      onChange={(event) => setNewTitle(event.target.value)}
+                      placeholder={selectedProject ? `Add a task to ${selectedProject.name}` : "What needs to be done?"}
+                      maxLength={200}
+                      required
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Due date
+                    <Input
+                      type="date"
+                      value={newDueDate}
+                      onChange={(event) => setNewDueDate(event.target.value)}
+                      aria-label="Task due date"
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Priority
+                    <select
+                      value={newPriority}
+                      onChange={(event) => setNewPriority(event.target.value as Priority)}
+                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="high">High · Red</option>
+                      <option value="medium">Medium · Yellow</option>
+                      <option value="low">Low · Green</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 border-t pt-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsAddTaskOpen(false)}
+                    disabled={isAdding}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isAdding || !newTitle.trim()}>
+                    <Plus aria-hidden="true" />
+                    {isAdding ? "Adding..." : "Add task"}
+                  </Button>
+                </div>
+              </form>
+            </dialog>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <label htmlFor="todo-day-filter" className="text-sm font-medium">Show</label>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-md bg-muted/30 p-2">
+              <label htmlFor="todo-day-filter" className="sr-only">Filter tasks by due date</label>
               <select
                 id="todo-day-filter"
                 value={dayFilter}
                 onChange={(event) => setDayFilter(event.target.value as DayFilter)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                aria-label="Filter tasks by due date"
+                className="h-9 min-w-[9rem] flex-none rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="all">All tasks</option>
                 <option value="today">Today</option>
@@ -506,17 +552,14 @@ export function TodoList({
                   value={specificDate}
                   onChange={(event) => setSpecificDate(event.target.value)}
                   aria-label="Filter tasks by date"
-                  className="w-40"
+                  className="w-40 bg-background"
                 />
               )}
-              <span className="text-sm text-muted-foreground">
-                {visibleTodos.length} {visibleTodos.length === 1 ? "task" : "tasks"}
-              </span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="sm">
+                  <Button type="button" variant="outline" size="sm" className="shrink-0 bg-background">
                     <ArrowUpDown aria-hidden="true" />
-                    Sort: {sortBy === "priority" ? "Priority" : "Due date"}
+                    {sortBy === "priority" ? "Priority" : "Due date"}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -530,6 +573,18 @@ export function TodoList({
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setIsAddTaskOpen(true)}
+                className="shrink-0"
+              >
+                <Plus aria-hidden="true" />
+                Add task
+              </Button>
+              <span className="whitespace-nowrap px-1 text-xs text-muted-foreground">
+                {visibleTodos.length} {visibleTodos.length === 1 ? "task" : "tasks"}
+              </span>
             </div>
 
             <ul className="mt-4 divide-y">
