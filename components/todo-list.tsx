@@ -491,13 +491,14 @@ export function TodoList({
                       required
                     />
                   </label>
-                  <label className="grid gap-1.5 text-sm font-medium">
+                  <label className="grid min-w-0 gap-1.5 text-sm font-medium">
                     Due date
                     <Input
                       type="date"
                       value={newDueDate}
                       onChange={(event) => setNewDueDate(event.target.value)}
                       aria-label="Task due date"
+                      className="box-border h-10 w-full min-w-0 max-w-full"
                     />
                   </label>
                   <label className="grid gap-1.5 text-sm font-medium">
@@ -530,21 +531,21 @@ export function TodoList({
               </form>
             </dialog>
 
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 rounded-md bg-muted/30 p-2">
+            <div className="mt-4 flex w-full flex-nowrap items-center justify-center gap-2 rounded-md bg-muted/30 p-2">
               <label htmlFor="todo-day-filter" className="sr-only">Filter tasks by due date</label>
               <select
                 id="todo-day-filter"
                 value={dayFilter}
                 onChange={(event) => setDayFilter(event.target.value as DayFilter)}
                 aria-label="Filter tasks by due date"
-                className="h-9 min-w-[9rem] flex-none rounded-md border border-input bg-background px-3 text-sm"
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm sm:flex-none"
               >
-                <option value="all">All tasks</option>
+                <option value="all">All</option>
                 <option value="today">Today</option>
                 <option value="tomorrow">Tomorrow</option>
                 <option value="week">This week</option>
-                <option value="specific">Choose a day</option>
-                <option value="unscheduled">No due date</option>
+                <option value="specific">Pick date</option>
+                <option value="unscheduled">Unscheduled</option>
               </select>
               {dayFilter === "specific" && (
                 <Input
@@ -582,9 +583,6 @@ export function TodoList({
                 <Plus aria-hidden="true" />
                 Add task
               </Button>
-              <span className="whitespace-nowrap px-1 text-xs text-muted-foreground">
-                {visibleTodos.length} {visibleTodos.length === 1 ? "task" : "tasks"}
-              </span>
             </div>
 
             <ul className="mt-4 divide-y">
