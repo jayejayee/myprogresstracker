@@ -3,7 +3,6 @@ import { Suspense } from "react";
 
 import { createClient } from "@/lib/supabase/server";
 import { TodoList } from "@/components/todo-list";
-import { LogoutButton } from "@/components/logout-button";
 
 async function DashboardContent() {
   const supabase = await createClient();
@@ -14,12 +13,6 @@ async function DashboardContent() {
   if (!user) {
     redirect("/auth/login");
   }
-
-  const name =
-    typeof user.user_metadata?.full_name === "string" &&
-    user.user_metadata.full_name.trim()
-      ? user.user_metadata.full_name.trim()
-      : null;
 
   const [todoResult, projectResult, reminderResult] = await Promise.all([
     supabase
@@ -67,9 +60,6 @@ async function DashboardContent() {
         initialTodos={todos}
         initialProjects={projects}
         initialReminders={reminders}
-        profileName={name ?? "Not set"}
-        profileEmail={user.email ?? ""}
-        logoutAction={<LogoutButton />}
         loadError={todoResult.error || projectResult.error || reminderResult.error ? "Could not load your tasks, projects, or reminders. Check the Supabase tables and row-level security." : null}
       />
     </div>

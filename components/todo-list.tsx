@@ -1,5 +1,4 @@
 "use client";
-
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -12,10 +11,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DottedProgress } from "@/components/dotted-progress";
 import { ReminderSettings, type Reminder } from "@/components/reminder-settings";
-import { PushNotifications } from "@/components/push-notifications";
-import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, FolderKanban, ListTodo, Plus, Search, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, Plus, Search, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 function getLocalToday() {
@@ -69,9 +68,6 @@ type TodoListProps = {
   initialProjects: Project[];
   initialReminders: Reminder[];
   loadError: string | null;
-  profileName: string;
-  profileEmail: string;
-  logoutAction: React.ReactNode;
 };
 
 export function TodoList({
@@ -79,14 +75,13 @@ export function TodoList({
   initialProjects,
   initialReminders,
   loadError,
-  profileName,
-  profileEmail,
-  logoutAction,
 }: TodoListProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [todos, setTodos] = useState(initialTodos);
   const [projects, setProjects] = useState(initialProjects);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [activeView, setActiveView] = useState<"projects" | "tasks" | "profile">("projects");
+  const activeView = searchParams.get("view") === "tasks" ? "tasks" : "projects";
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDueDate, setNewProjectDueDate] = useState("");
@@ -105,6 +100,11 @@ export function TodoList({
   const [isAdding, setIsAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState(loadError);
+
+  function changeActiveView(view: "projects" | "tasks") {
+    router.replace(`/protected?view=${view}`, { scroll: false });
+  }
+
   const today = getLocalToday();
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const filteredProjects = projects.filter((project) =>
@@ -155,11 +155,6 @@ export function TodoList({
     : 0;
 
   useEffect(() => {
-    setNewDueDate(getLocalToday());
-    setNewProjectDueDate(getLocalToday());
-  }, []);
-
-  useEffect(() => {
     const dialog = taskDialogRef.current;
     if (!dialog) return;
 
@@ -201,10 +196,16 @@ export function TodoList({
       setIsAddProjectOpen(false);
       setSelectedProjectId(data.id);
       setDayFilter("all");
-      setActiveView("tasks");
+      changeActiveView("tasks");
       setShowWelcome(false);
     }
+
     setIsAddingProject(false);
+  }
+
+  function openAddProject() {
+    setNewProjectDueDate(getLocalToday());
+    setIsAddProjectOpen(true);
   }
 
   async function addTodo(event: FormEvent<HTMLFormElement>) {
@@ -215,6 +216,17 @@ export function TodoList({
     setIsAdding(true);
     setErrorMessage(null);
     const supabase = createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setErrorMessage(userError?.message ?? "Sign in to add a task.");
+      setIsAdding(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("todolist")
       .insert({
@@ -222,6 +234,7 @@ export function TodoList({
         todoby: newDueDate || null,
         projectid: selectedProjectId,
         priority: newPriority,
+        userprofile: user.id,
       })
       .select("id, todo, todoby, completedstatus, projectid, priority")
       .single();
@@ -244,8 +257,16 @@ export function TodoList({
       setNewDueDate(getLocalToday());
       setNewPriority("medium");
       setIsAddTaskOpen(false);
+      taskDialogRef.current?.close();
     }
+
     setIsAdding(false);
+  }
+
+  function openAddTask() {
+    setNewDueDate(getLocalToday());
+    setErrorMessage(null);
+    setIsAddTaskOpen(true);
   }
 
   async function toggleTodo(todo: Todo, completed: boolean) {
@@ -352,7 +373,7 @@ export function TodoList({
               </div>
               <Button
                 type="button"
-                onClick={() => setIsAddProjectOpen(true)}
+                onClick={openAddProject}
                 className="shrink-0"
               >
                 <FolderPlus aria-hidden="true" />
@@ -430,7 +451,7 @@ export function TodoList({
                         type="button"
                         onClick={() => {
                           setSelectedProjectId(project.id);
-                          setActiveView("tasks");
+                          changeActiveView("tasks");
                           setDayFilter("all");
                           setShowWelcome(false);
                         }}
@@ -471,25 +492,6 @@ export function TodoList({
               </p>
             )}
           </div>
-        ) : activeView === "profile" ? (
-          <section aria-labelledby="profile-heading" className="space-y-5">
-            <div>
-              <h2 id="profile-heading" className="text-lg font-semibold">Profile</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Account details and sign out</p>
-            </div>
-            <dl className="divide-y border-y">
-              <div className="py-3">
-                <dt className="text-xs text-muted-foreground">Name</dt>
-                <dd className="mt-1 text-sm font-medium">{profileName}</dd>
-              </div>
-              <div className="py-3">
-                <dt className="text-xs text-muted-foreground">Email</dt>
-                <dd className="mt-1 break-all text-sm font-medium">{profileEmail}</dd>
-              </div>
-            </dl>
-            <PushNotifications />
-            {logoutAction}
-          </section>
         ) : (
           <div>
             {selectedProject ? (
@@ -500,7 +502,7 @@ export function TodoList({
                   className="mb-3 -ml-3"
                   onClick={() => {
                     setSelectedProjectId(null);
-                    setActiveView("projects");
+                    changeActiveView("projects");
                     setShowWelcome(false);
                   }}
                 >
@@ -544,6 +546,11 @@ export function TodoList({
                     {selectedProject ? `For ${selectedProject.name}` : "Add a task to your list"}
                   </p>
                 </div>
+                {errorMessage && (
+                  <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">
+                    Could not add task: {errorMessage}
+                  </p>
+                )}
                 <div className="space-y-4">
                   <label className="grid gap-1.5 text-sm font-medium">
                     Task
@@ -642,7 +649,7 @@ export function TodoList({
               <Button
                 type="button"
                 size="sm"
-                onClick={() => setIsAddTaskOpen(true)}
+                onClick={openAddTask}
                 className="shrink-0"
               >
                 <Plus aria-hidden="true" />
@@ -736,57 +743,6 @@ export function TodoList({
           </div>
         )}
       </section>
-
-      <nav
-        aria-label="Main navigation"
-        className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
-      >
-        <div className="mx-auto flex max-w-2xl items-center justify-center gap-1 px-2 py-3">
-          <div className="grid w-full grid-cols-3 gap-1" role="group" aria-label="Sections">
-            <Button
-              type="button"
-              variant={activeView === "projects" ? "secondary" : "ghost"}
-              className="h-12 w-full"
-              aria-current={activeView === "projects" ? "page" : undefined}
-              onClick={() => {
-                setSelectedProjectId(null);
-                setActiveView("projects");
-                setShowWelcome(false);
-              }}
-            >
-              <FolderKanban aria-hidden="true" />
-              Projects
-            </Button>
-            <Button
-              type="button"
-              variant={activeView === "tasks" ? "secondary" : "ghost"}
-              className="h-12 w-full"
-              aria-current={activeView === "tasks" ? "page" : undefined}
-              onClick={() => {
-                setSelectedProjectId(null);
-                setActiveView("tasks");
-                setShowWelcome(false);
-              }}
-            >
-              <ListTodo aria-hidden="true" />
-              Tasks
-            </Button>
-            <Button
-              type="button"
-              variant={activeView === "profile" ? "secondary" : "ghost"}
-              className="h-12 w-full"
-              aria-current={activeView === "profile" ? "page" : undefined}
-              onClick={() => {
-                setActiveView("profile");
-                setShowWelcome(false);
-              }}
-            >
-              <UserRound aria-hidden="true" />
-              Profile
-            </Button>
-          </div>
-        </div>
-      </nav>
     </>
   );
 }

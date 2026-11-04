@@ -2,8 +2,9 @@
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { BellPlus } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { BellPlus, X } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type Reminder = {
   entityType: "task" | "project";
@@ -39,25 +40,36 @@ export function ReminderSettings({
   title,
   initialReminder,
 }: ReminderSettingsProps) {
-  const [schedule, setSchedule] = useState("");
+  const [schedule, setSchedule] = useState(
+    initialReminder ? asLocalDateTime(initialReminder.nextAt) : "",
+  );
   const [repeatRule, setRepeatRule] = useState<Reminder["repeatRule"]>(
     initialReminder?.repeatRule ?? "once",
   );
   const [hasReminder, setHasReminder] = useState(initialReminder !== null);
   const [message, setMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    setSchedule(
-      initialReminder
-        ? asLocalDateTime(initialReminder.nextAt)
-        : defaultLocalDateTime(),
-    );
-  }, [initialReminder]);
+    if (!isOpen) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !isSaving) setIsOpen(false);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, isSaving]);
+
+  function openReminder() {
+    if (!schedule) setSchedule(defaultLocalDateTime());
+    setMessage(null);
+    setIsOpen(true);
+  }
 
   async function saveReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const details = event.currentTarget.closest("details");
     if (!schedule || new Date(schedule).getTime() <= Date.now()) {
       setMessage("Choose a future date and time.");
       return;
@@ -81,7 +93,7 @@ export function ReminderSettings({
 
     if (!error) {
       setHasReminder(true);
-      if (details) details.open = false;
+      setIsOpen(false);
     }
     setMessage(error ? error.message : "Reminder saved.");
     setIsSaving(false);
@@ -97,69 +109,124 @@ export function ReminderSettings({
       .eq("entity_type", entityType)
       .eq("entity_id", entityId);
 
-    if (!error) setHasReminder(false);
+    if (!error) {
+      setHasReminder(false);
+      setIsOpen(false);
+    }
     setMessage(error ? error.message : "Reminder removed.");
     setIsSaving(false);
   }
 
   return (
-    <details className="group">
-      <summary
+    <>
+      <button
+        type="button"
         aria-label={`Set reminder for ${title}`}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        onClick={openReminder}
         className="flex h-9 cursor-pointer list-none items-center justify-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&::-webkit-details-marker]:hidden"
       >
         <BellPlus
           aria-hidden="true"
           className={`size-4 ${hasReminder ? "fill-current" : "fill-none"}`}
         />
-      </summary>
-      <form
-        onSubmit={saveReminder}
-        className="mt-2 grid gap-3 rounded-md border bg-background p-3 sm:absolute sm:right-0 sm:z-10 sm:w-72 sm:shadow-md"
-      >
-        <label className="grid gap-1 text-xs font-medium">
-          Date and time
-          <input
-            type="datetime-local"
-            value={schedule}
-            onChange={(event) => setSchedule(event.target.value)}
-            required
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-medium">
-          Repeat
-          <select
-            value={repeatRule}
-            onChange={(event) =>
-              setRepeatRule(event.target.value as Reminder["repeatRule"])
-            }
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+      </button>
+      {isOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !isSaving) {
+                setIsOpen(false);
+              }
+            }}
           >
-            <option value="once">Does not repeat</option>
-            <option value="daily">Every day</option>
-            <option value="weekly">Every week</option>
-            <option value="monthly">Every month</option>
-          </select>
-        </label>
-        {message && <p role="status" className="text-xs text-muted-foreground">{message}</p>}
-        <div className="flex items-center justify-between gap-2">
-          {hasReminder && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={removeReminder}
-              disabled={isSaving}
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`reminder-title-${entityType}-${entityId}`}
+              className="w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-xl"
             >
-              Remove
-            </Button>
-          )}
-          <Button type="submit" size="sm" disabled={isSaving || !schedule} className="ml-auto">
-            {isSaving ? "Saving..." : "Save reminder"}
-          </Button>
-        </div>
-      </form>
-    </details>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2
+                    id={`reminder-title-${entityType}-${entityId}`}
+                    className="text-lg font-semibold"
+                  >
+                    {hasReminder ? "Edit reminder" : "Add reminder"}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{title}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close reminder dialog"
+                  onClick={() => setIsOpen(false)}
+                  disabled={isSaving}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </div>
+              <form onSubmit={saveReminder} className="grid gap-3">
+                <label className="grid gap-1 text-sm font-medium">
+                  Date and time
+                  <input
+                    type="datetime-local"
+                    value={schedule}
+                    onChange={(event) => setSchedule(event.target.value)}
+                    required
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-medium">
+                  Repeat
+                  <select
+                    value={repeatRule}
+                    onChange={(event) =>
+                      setRepeatRule(event.target.value as Reminder["repeatRule"])
+                    }
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="once">Does not repeat</option>
+                    <option value="daily">Every day</option>
+                    <option value="weekly">Every week</option>
+                    <option value="monthly">Every month</option>
+                  </select>
+                </label>
+                {message && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {message}
+                  </p>
+                )}
+                <div className="flex items-center justify-between gap-2 border-t pt-3">
+                  {hasReminder && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={removeReminder}
+                      disabled={isSaving}
+                    >
+                      {isSaving ? "Saving..." : "Remove"}
+                    </Button>
+                  )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSaving || !schedule}
+                    className="ml-auto"
+                  >
+                    {isSaving ? "Saving..." : "Save reminder"}
+                  </Button>
+                </div>
+              </form>
+            </section>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

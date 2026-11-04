@@ -1,3 +1,6 @@
+import { Suspense } from "react";
+import { AppBottomNavigation } from "@/components/app-bottom-navigation";
+
 export default function ProtectedLayout({
   children,
 }: {
@@ -8,6 +11,9 @@ export default function ProtectedLayout({
       <div className="mx-auto w-full max-w-5xl p-5 pb-24">
         {children}
       </div>
+      <Suspense fallback={null}>
+        <AppBottomNavigation />
+      </Suspense>
     </main>
   );
 }
