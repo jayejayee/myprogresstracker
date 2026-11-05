@@ -166,12 +166,26 @@ Deno.serve(async (request) => {
       .eq("userprofile", reminder.userprofile)
       .maybeSingle();
 
-    if (sourceError || !source || source.completedstatus === true) {
-      await supabase
+    if (sourceError) {
+      console.error("Could not verify reminder source", {
+        reminderId: reminder.id,
+        message: sourceError.message,
+      });
+      continue;
+    }
+
+    if (!source || source.completedstatus === true) {
+      const { error: disableError } = await supabase
         .from("reminders")
         .update({ enabled: false })
         .eq("id", reminder.id)
         .eq("next_at", reminder.next_at);
+      if (disableError) {
+        console.error("Could not disable inactive reminder", {
+          reminderId: reminder.id,
+          message: disableError.message,
+        });
+      }
       continue;
     }
 
@@ -180,7 +194,20 @@ Deno.serve(async (request) => {
       .select("endpoint, subscription")
       .eq("userprofile", reminder.userprofile);
 
-    if (subscriptionError || !subscriptions?.length) continue;
+    if (subscriptionError) {
+      console.error("Could not load reminder subscriptions", {
+        reminderId: reminder.id,
+        message: subscriptionError.message,
+      });
+      continue;
+    }
+    if (!subscriptions?.length) {
+      console.warn("No push subscriptions for due reminder", {
+        reminderId: reminder.id,
+        userprofile: reminder.userprofile,
+      });
+      continue;
+    }
 
     const payload = JSON.stringify({
       title: reminder.entity_title,

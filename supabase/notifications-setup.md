@@ -36,6 +36,14 @@ select vault.create_secret('YOUR_SERVICE_ROLE_KEY', 'service_role_key');
 
 Run `reminders.sql` in the Supabase SQL Editor. Then run `reminders-cron.sql` to call the Edge Function once per minute.
 
+After changing `supabase/functions/send-reminders/index.js`, deploy the updated function:
+
+```bash
+supabase functions deploy send-reminders
+```
+
+If reminders stop arriving, check the `send-reminders` Edge Function logs for push delivery errors, and confirm the `send-reminders-every-minute` job is active in `cron.job`. A local test notification only checks that the browser can display notifications; it does not test scheduled delivery from Supabase.
+
 ## 4. Enable a phone
 
 Deploy the website over HTTPS. On iPhone, open it in Safari, use **Share > Add to Home Screen**, launch the installed app, open **Profile**, and tap **Enable phone notifications**. On Android, open the HTTPS site in a supported browser and enable notifications in **Profile**.

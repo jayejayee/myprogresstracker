@@ -645,19 +645,19 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
   }
 
   return (
-    <section id="log-workout" className="mb-8 scroll-mt-6 rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
-      <h2 className="text-xl font-bold">Log a workout</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <section id="log-workout" className="mb-8 scroll-mt-6 rounded-xl border bg-card p-3 text-card-foreground shadow-sm sm:p-5">
+      <h2 className="text-xl font-bold sm:text-2xl">Log a workout</h2>
+      <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
         Choose a body group for each exercise, add sets, and include more groups if needed.
       </p>
-      <form onSubmit={submitWorkout} className="mt-4 grid max-w-2xl gap-4">
-        <label className="grid gap-1 text-sm font-medium">
-          Workout date
+      <form onSubmit={submitWorkout} className="mt-4 grid w-full gap-3 sm:mt-5 sm:max-w-2xl sm:gap-4">
+        <label className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-lg bg-muted/40 px-3 py-2 text-xs font-semibold sm:inline-grid sm:w-fit sm:grid-cols-1 sm:items-stretch sm:bg-transparent sm:p-0 sm:text-sm">
+          <span>Workout date</span>
           <input
             type="date"
             value={workoutDate}
             readOnly
-            className="h-10 rounded-md border border-input bg-muted px-3 text-muted-foreground"
+            className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-muted-foreground sm:h-10 sm:px-3"
           />
         </label>
         {entries.map((entry, index) => {
@@ -672,26 +672,26 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
             : null;
 
           return (
-            <fieldset key={index} className="overflow-hidden rounded-xl border-2 border-primary/15 bg-card shadow-sm">
+            <fieldset key={index} className="min-w-0 overflow-hidden rounded-xl border border-primary/20 bg-card shadow-sm sm:border-2">
             <legend className="sr-only">Exercise {index + 1}</legend>
-            <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-3 sm:gap-3 sm:px-4">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
                 {index + 1}
               </span>
               {selectedExercise && entry.muscleGroup && (
                 <>
-                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-3">
+                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:gap-4">
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Body group
                       </p>
-                      <p className="truncate text-sm font-semibold">{entry.muscleGroup}</p>
+                      <p className="break-words text-sm font-semibold leading-tight">{entry.muscleGroup}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Exercise
                       </p>
-                      <p className="truncate text-sm font-semibold">
+                      <p className="break-words text-sm font-semibold leading-tight">
                         {selectedExercise.exercise_id}
                       </p>
                     </div>
@@ -700,7 +700,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                     type="button"
                     onClick={() => openSelectionEditor(index, entry)}
                     disabled={isSaving}
-                    className="ml-auto h-9 shrink-0 rounded-md border bg-background px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                    className="ml-auto h-10 shrink-0 rounded-md border bg-background px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
                   >
                     Change
                   </button>
@@ -718,8 +718,8 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
               )}
             </div>
             {!(selectedExercise && entry.muscleGroup) && (
-              <div className="grid gap-3 p-4 sm:grid-cols-2">
-            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold">
+              <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
+            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold sm:p-4">
               <span className="flex items-center gap-2 uppercase tracking-wide">
                 <span className="flex size-5 items-center justify-center rounded-full bg-sky-100 text-[10px] text-sky-800 dark:bg-sky-900 dark:text-sky-100">1</span>
                 Body group
@@ -745,7 +745,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                 ))}
               </select>
             </label>
-            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold">
+            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold sm:p-4">
               <span className="flex items-center gap-2 uppercase tracking-wide">
                 <span className="flex size-5 items-center justify-center rounded-full bg-violet-100 text-[10px] text-violet-800 dark:bg-violet-900 dark:text-violet-100">2</span>
                 Exercise
@@ -779,8 +779,8 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
             </label>
             </div>
             )}
-            <section aria-label={`Sets for ${selectedExercise?.exercise_id ?? `exercise ${index + 1}`}`} className="border-t bg-muted/15 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <section aria-label={`Sets for ${selectedExercise?.exercise_id ?? `exercise ${index + 1}`}`} className="border-t bg-muted/15 p-3 sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-2 sm:gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-sm font-bold">
                   <span className="flex size-5 items-center justify-center rounded-full bg-emerald-100 text-[10px] text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100">3</span>
@@ -792,42 +792,14 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                 {entry.sets.length} {entry.sets.length === 1 ? "set" : "sets"}
               </span>
             </div>
-            <div className="grid gap-3">
+            <div className="grid gap-2 sm:gap-3">
               {entry.sets.map((set, setIndex) => (
-                <div key={setIndex} className="grid gap-2 rounded-lg border bg-background p-3 shadow-sm">
-                  <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
-                    <span className="flex h-8 items-center justify-center self-center whitespace-nowrap rounded-md bg-emerald-100 px-2 text-xs font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-100">
+                <div key={setIndex} className="grid min-w-0 gap-2 rounded-lg border bg-background p-2.5 shadow-sm sm:p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex h-7 items-center rounded-md bg-emerald-100 px-2 text-xs font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-100">
                       Set {setIndex + 1}
                     </span>
-                    <label className="grid gap-1 text-xs font-semibold">
-                      Reps
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        required
-                        value={set.reps}
-                        onChange={(event) =>
-                          updateSet(index, setIndex, { reps: event.target.value })
-                        }
-                        className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-xs font-semibold">
-                      Weight
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        required
-                        value={set.weight}
-                        onChange={(event) =>
-                          updateSet(index, setIndex, { weight: event.target.value })
-                        }
-                        className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
-                      />
-                    </label>
-                    {entry.sets.length > 1 ? (
+                    {entry.sets.length > 1 && (
                       <button
                         type="button"
                         aria-label={`Remove set ${setIndex + 1}`}
@@ -838,11 +810,41 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                             ),
                           })
                         }
-                        className="mb-2 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                        className="min-h-9 rounded-md px-2 text-xs text-destructive hover:bg-destructive/10 sm:min-h-8"
                       >
-                        Remove
+                        Remove set
                       </button>
-                    ) : <span />}
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <label className="grid min-w-0 gap-1 text-xs font-semibold">
+                      Weight
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        required
+                        value={set.weight}
+                        onChange={(event) =>
+                          updateSet(index, setIndex, { weight: event.target.value })
+                        }
+                        className="h-11 min-w-0 rounded-md border border-input bg-background px-2 text-base sm:px-3 sm:text-sm"
+                      />
+                    </label>
+                    <label className="grid min-w-0 gap-1 text-xs font-semibold">
+                      Reps
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        value={set.reps}
+                        onChange={(event) =>
+                          updateSet(index, setIndex, { reps: event.target.value })
+                        }
+                        className="h-11 min-w-0 rounded-md border border-input bg-background px-2 text-base sm:px-3 sm:text-sm"
+                      />
+                    </label>
                   </div>
                   {(() => {
                     const previousSet = selectedExercise
@@ -861,8 +863,8 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                     );
 
                     return (
-                      <div className="ml-1 grid gap-2 sm:grid-cols-2">
-                        <div className="rounded-md bg-muted px-3 py-2 text-xs">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="min-w-0 rounded-md bg-muted px-2 py-2 text-[11px] leading-relaxed sm:px-3 sm:text-xs">
                           <p className="font-semibold">
                             Last time{previousDate ? ` · ${previousDate}` : ""}
                           </p>
@@ -893,7 +895,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                             </p>
                           )}
                         </div>
-                        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+                        <div className="min-w-0 rounded-md border border-primary/20 bg-primary/5 px-2 py-2 text-[11px] leading-relaxed sm:px-3 sm:text-xs">
                           <p className="font-semibold">This set</p>
                           {currentEstimatedOneRepMax != null ? (
                             <>
@@ -925,7 +927,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                   })
                 }
                 disabled={isSaving}
-                className="h-9 justify-self-start rounded-md border border-dashed px-3 text-sm font-medium hover:bg-background disabled:opacity-50"
+                className="h-10 w-full rounded-md border border-dashed px-3 text-sm font-medium hover:bg-background disabled:opacity-50 sm:w-auto"
               >
                 Add set
               </button>
@@ -1055,7 +1057,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
               ])
             }
             disabled={isSaving}
-            className="h-10 rounded-md border border-violet-300 bg-violet-50 px-4 text-sm font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950"
+            className="min-h-11 flex-1 rounded-md border border-violet-300 bg-violet-50 px-3 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 sm:flex-none sm:px-4 sm:text-sm dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950"
           >
             Add another exercise
           </button>
@@ -1072,14 +1074,14 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
               ])
             }
             disabled={isSaving}
-            className="h-10 rounded-md border border-sky-300 bg-sky-50 px-4 text-sm font-medium text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950"
+            className="min-h-11 flex-1 rounded-md border border-sky-300 bg-sky-50 px-3 text-xs font-medium text-sky-900 hover:bg-sky-100 disabled:opacity-50 sm:flex-none sm:px-4 sm:text-sm dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950"
           >
             Add another body group
           </button>
           <button
             type="submit"
             disabled={isSaving || exercises.length === 0}
-            className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            className="min-h-11 w-full rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
           >
             {isSaving ? "Saving workout..." : "Save workout"}
           </button>
@@ -1390,7 +1392,7 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
   );
 
   return (
-    <main className="p-6 pb-8">
+    <main className="pb-8 sm:p-6 sm:pb-8">
       <h1 className="mb-4 text-2xl font-bold">Workout tracker</h1>
 
       {section === "log-workout" && (

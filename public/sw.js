@@ -1,8 +1,18 @@
 self.addEventListener("push", (event) => {
-  const payload = event.data ? event.data.json() : {};
+  let payload = {};
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = { body: event.data.text() };
+    }
+  }
+
   event.waitUntil(
     self.registration.showNotification(payload.title || "Task reminder", {
       body: payload.body || "You have a reminder.",
+      icon: "/opengraph-image.png",
+      badge: "/opengraph-image.png",
       data: { url: payload.url || "/protected" },
       tag: payload.tag || "task-reminder",
     }),

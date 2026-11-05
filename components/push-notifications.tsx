@@ -20,14 +20,51 @@ export function PushNotifications() {
 
   useEffect(() => {
     let mounted = true;
-    if ("serviceWorker" in navigator && "PushManager" in window) {
-      navigator.serviceWorker
-        .getRegistration()
-        .then((registration) => registration?.pushManager.getSubscription())
-        .then((subscription) => {
-          if (mounted && subscription) setIsEnabled(true);
-        });
+    async function syncSubscription() {
+      if (
+        !("serviceWorker" in navigator) ||
+        !("PushManager" in window) ||
+        !("Notification" in window) ||
+        Notification.permission !== "granted"
+      ) {
+        return;
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        const subscription = await registration?.pushManager.getSubscription();
+        if (!subscription) return;
+
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!user) return;
+
+        const { error } = await supabase.from("push_subscriptions").upsert(
+          {
+            endpoint: subscription.endpoint,
+            subscription: subscription.toJSON(),
+            userprofile: user.id,
+          },
+          { onConflict: "endpoint" },
+        );
+        if (error) throw error;
+        if (mounted) setIsEnabled(true);
+      } catch (error) {
+        if (mounted) {
+          setMessage(
+            error instanceof Error
+              ? `Could not sync this device's notification subscription: ${error.message}`
+              : "Could not sync this device's notification subscription.",
+          );
+        }
+      }
     }
+
+    syncSubscription();
     return () => {
       mounted = false;
     };
@@ -38,7 +75,11 @@ export function PushNotifications() {
       setMessage("Push notifications are not configured on the app yet.");
       return;
     }
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    if (
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window) ||
+      !("Notification" in window)
+    ) {
       setMessage("This browser does not support push notifications.");
       return;
     }
@@ -51,9 +92,16 @@ export function PushNotifications() {
         throw new Error("Allow notifications in your browser settings to enable reminders.");
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.register("/sw.js");
+      const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
       const supabase = createClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("Sign in again to enable notifications.");
 
       if (subscription && refresh) {
         const { error } = await supabase
@@ -76,6 +124,7 @@ export function PushNotifications() {
         {
           endpoint: subscription.endpoint,
           subscription: subscription.toJSON(),
+          userprofile: user.id,
         },
         { onConflict: "endpoint" },
       );
@@ -103,7 +152,7 @@ export function PushNotifications() {
     setIsTesting(true);
     setMessage(null);
     try {
-      const registration = await navigator.serviceWorker.getRegistration();
+      const registration = await navigator.serviceWorker.ready;
       const subscription = await registration?.pushManager.getSubscription();
       if (!registration || !subscription) {
         setIsEnabled(false);
@@ -116,7 +165,7 @@ export function PushNotifications() {
         data: { url: "/protected" },
         tag: "test-reminder",
       });
-      setMessage("Test notification sent to this device.");
+      setMessage("Local test notification shown. Scheduled reminders are delivered by Supabase.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not show a test notification.");
     } finally {
@@ -149,7 +198,7 @@ export function PushNotifications() {
           disabled={!isEnabled || isTesting}
         >
           <Bell aria-hidden="true" />
-          {isTesting ? "Sending test..." : "Send test notification"}
+          {isTesting ? "Showing test..." : "Show local test notification"}
         </Button>
       </div>
       {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}

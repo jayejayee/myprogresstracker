@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { DottedProgress } from "@/components/dotted-progress";
 import { ReminderSettings, type Reminder } from "@/components/reminder-settings";
 import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, Plus, Search, Trash2 } from "lucide-react";
@@ -76,7 +76,6 @@ export function TodoList({
   initialReminders,
   loadError,
 }: TodoListProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [todos, setTodos] = useState(initialTodos);
   const [projects, setProjects] = useState(initialProjects);
@@ -102,7 +101,7 @@ export function TodoList({
   const [errorMessage, setErrorMessage] = useState(loadError);
 
   function changeActiveView(view: "projects" | "tasks") {
-    router.replace(`/protected?view=${view}`, { scroll: false });
+    window.history.replaceState(null, "", `/protected?view=${view}`);
   }
 
   const today = getLocalToday();
