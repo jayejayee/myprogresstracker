@@ -43,15 +43,15 @@ export function ExerciseGoalsCard({
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         onClick={() => setIsOpen(true)}
-        className="overflow-hidden rounded-xl border bg-gradient-to-br from-card via-card to-emerald-500/5 p-5 text-left text-card-foreground shadow-sm transition hover:border-emerald-500/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="overflow-hidden rounded-2xl border border-emerald-500/15 bg-gradient-to-br from-card via-card to-emerald-500/10 p-5 text-left text-card-foreground shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-500/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-6"
       >
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Exercise goals</h2>
-          <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+          <span className="flex size-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
             <Target aria-hidden="true" className="size-4" />
           </span>
         </div>
-        <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="mt-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-4xl font-bold tracking-tight">
               {achievedGoals.length}
@@ -70,7 +70,7 @@ export function ExerciseGoalsCard({
             dotCount={20}
           />
         </div>
-        <div className="mt-4 flex items-center justify-between border-t pt-3 text-sm text-muted-foreground">
+        <div className="mt-4 flex items-center justify-between border-t border-emerald-500/10 pt-3 text-sm text-muted-foreground">
           <span>
             {activeGoalCount} active {activeGoalCount === 1 ? "goal" : "goals"}
           </span>

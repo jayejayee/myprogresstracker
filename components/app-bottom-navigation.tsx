@@ -29,17 +29,17 @@ export function AppBottomNavigation() {
           { href: "/protected/home", label: "Main menu", icon: ArrowLeft },
           { href: "/protected/workouts", label: "Log workout", icon: Dumbbell },
           { href: "/protected/workouts/history", label: "History", icon: History },
-          { href: "/protected/workouts/exercises", label: "Exercises & goals", icon: Target },
+          { href: "/protected/workouts/exercises", label: "Exercises", icon: Target },
         ]
       : mainNavigationItems;
 
   return (
     <nav
       aria-label={inTasks ? "Task navigation" : inWorkouts ? "Workout navigation" : "Main navigation"}
-      className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-50 bg-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2"
     >
-      <div className="mx-auto max-w-2xl px-2 py-2">
-        <div className={`grid ${navigationItems.length === 3 ? "grid-cols-3" : "grid-cols-4"} gap-1`}>
+      <div className="mx-auto max-w-xl rounded-2xl border bg-background/95 p-1.5 shadow-lg shadow-black/10 backdrop-blur-xl">
+        <div className={`grid min-w-0 ${navigationItems.length === 3 ? "grid-cols-3" : "grid-cols-4"} gap-1`}>
           {navigationItems.map(({ href, label, icon: Icon }) => {
             const isActive = inTasks
               ? (label === "Projects" && taskView === "projects") ||
@@ -57,14 +57,14 @@ export function AppBottomNavigation() {
                 key={href}
                 href={href}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex h-12 flex-col items-center justify-center gap-1 rounded-md text-xs font-medium ${
+                className={`flex h-12 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl px-1 text-[10px] font-semibold leading-tight transition-colors sm:text-xs ${
                   isActive
-                    ? "bg-secondary text-secondary-foreground"
-                    : "text-muted-foreground hover:bg-accent"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 }`}
               >
-                <Icon aria-hidden="true" className="size-4" />
-                {label}
+                <Icon aria-hidden="true" className="size-4 shrink-0" />
+                <span className="block max-w-full truncate">{label}</span>
               </Link>
             );
           })}

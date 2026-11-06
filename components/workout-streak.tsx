@@ -3,17 +3,43 @@
 import { useSyncExternalStore } from "react";
 import { Flame } from "lucide-react";
 
-function getLocalDate() {
-  const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return localDate.toISOString().slice(0, 10);
+const STREAK_GRACE_PERIOD_MS = 55 * 60 * 60 * 1000;
+
+function getLatestWorkoutTimestamp(timestamps: string[]) {
+  return timestamps.reduce((latest, timestamp) => {
+    const parsedTimestamp = new Date(timestamp).getTime();
+    return Number.isFinite(parsedTimestamp)
+      ? Math.max(latest, parsedTimestamp)
+      : latest;
+  }, 0);
 }
 
-function subscribeToLocalDate(onChange: () => void) {
-  const now = new Date();
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const timeout = window.setTimeout(onChange, tomorrow.getTime() - now.getTime());
-  return () => window.clearTimeout(timeout);
+function isStreakActive(timestamps: string[], now: number) {
+  const latestWorkout = getLatestWorkoutTimestamp(timestamps);
+  return (
+    latestWorkout > 0 &&
+    latestWorkout <= now &&
+    now - latestWorkout <= STREAK_GRACE_PERIOD_MS
+  );
+}
+
+function subscribeToStreakClock(onChange: () => void, timestamps: string[]) {
+  const latestWorkout = getLatestWorkoutTimestamp(timestamps);
+  const now = Date.now();
+  const nextUpdate =
+    latestWorkout > now
+      ? latestWorkout
+      : latestWorkout > 0
+        ? latestWorkout + STREAK_GRACE_PERIOD_MS
+        : now;
+  const timeout =
+    nextUpdate > now
+      ? window.setTimeout(onChange, nextUpdate - now)
+      : undefined;
+
+  return () => {
+    if (timeout !== undefined) window.clearTimeout(timeout);
+  };
 }
 
 function toLocalDate(timestamp: string) {
@@ -22,17 +48,11 @@ function toLocalDate(timestamp: string) {
   return localDate.toISOString().slice(0, 10);
 }
 
-function getStreakDays(timestamps: string[], today: string) {
-  if (!today || timestamps.length === 0) return 0;
-
+function getStreakDays(timestamps: string[]) {
+  if (timestamps.length === 0) return 0;
   const workoutDays = [...new Set(timestamps.map(toLocalDate))].sort().reverse();
   const dayNumber = (date: string) => Date.parse(`${date}T00:00:00Z`) / 86_400_000;
-  const todayNumber = dayNumber(today);
   const latestWorkoutDay = dayNumber(workoutDays[0]);
-
-  if (todayNumber - latestWorkoutDay > 1 || latestWorkoutDay > todayNumber) {
-    return 0;
-  }
 
   let streak = 0;
   let expectedDay = latestWorkoutDay;
@@ -48,12 +68,12 @@ function getStreakDays(timestamps: string[], today: string) {
 }
 
 export function WorkoutStreak({ timestamps }: { timestamps: string[] }) {
-  const today = useSyncExternalStore(
-    subscribeToLocalDate,
-    getLocalDate,
-    () => "",
+  const isActive = useSyncExternalStore(
+    (onChange) => subscribeToStreakClock(onChange, timestamps),
+    () => isStreakActive(timestamps, Date.now()),
+    () => null,
   );
-  const streak = getStreakDays(timestamps, today);
+  const streak = isActive ? getStreakDays(timestamps) : 0;
 
   return (
     <span
@@ -61,7 +81,7 @@ export function WorkoutStreak({ timestamps }: { timestamps: string[] }) {
       aria-live="polite"
     >
       <Flame aria-hidden="true" className="size-4" />
-      {today ? `${streak} day streak` : "…"}
+      {isActive === null ? "…" : `${streak} day streak`}
     </span>
   );
 }

@@ -13,6 +13,7 @@ type Exercise = {
   id: number;
   exercise_id: string;
   primary_muscle_group: string;
+  "isolated/compound": string | null;
 };
 
 type ExerciseGoal = {
@@ -39,6 +40,16 @@ type WorkoutGroup = {
   workoutId: number | null;
   createdAt: string;
   logs: ExerciseLog[];
+};
+
+type HistoryExerciseGroup = {
+  exerciseId: string;
+  muscleGroup: string;
+  logs: ExerciseLog[];
+};
+
+type SelectedHistoryExercise = HistoryExerciseGroup & {
+  workoutDate: string;
 };
 
 type WorkoutEntry = {
@@ -97,6 +108,10 @@ type ExerciseCardProps = {
   exercise: Exercise;
   goals: ExerciseGoal[];
   logs: ExerciseLog[];
+  onUpdateExerciseType: (
+    exercise: Exercise,
+    exerciseType: "compound" | "isolated",
+  ) => Promise<string | null>;
   onAddGoal: (
     exercise: Exercise,
     weight: number,
@@ -109,15 +124,41 @@ function ExerciseCard({
   exercise,
   goals,
   logs,
+  onUpdateExerciseType,
   onAddGoal,
   onMarkGoalAchieved,
 }: ExerciseCardProps) {
+  const [isEditingType, setIsEditingType] = useState(false);
+  const [exerciseType, setExerciseType] = useState(
+    exercise["isolated/compound"] ?? "",
+  );
+  const [isSavingType, setIsSavingType] = useState(false);
   const [goalWeight, setGoalWeight] = useState("");
   const [achieveBy, setAchieveBy] = useState("");
   const [isGoalFormOpen, setIsGoalFormOpen] = useState(false);
   const [isSavingGoal, setIsSavingGoal] = useState(false);
   const [isMarkingAchieved, setIsMarkingAchieved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  async function saveExerciseType(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (exerciseType !== "compound" && exerciseType !== "isolated") {
+      setMessage("Choose compound or isolated.");
+      return;
+    }
+
+    setIsSavingType(true);
+    setMessage(null);
+    const error = await onUpdateExerciseType(exercise, exerciseType);
+    setIsSavingType(false);
+    if (error) {
+      setMessage(error);
+      return;
+    }
+
+    setMessage("Exercise type updated.");
+    setIsEditingType(false);
+  }
 
   async function saveGoal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -180,6 +221,65 @@ function ExerciseCard({
         <p className="mt-1 break-words text-sm font-medium">
           {exercise.primary_muscle_group || "Not specified"}
         </p>
+      </div>
+      <div className="mt-3">
+        {isEditingType ? (
+          <form onSubmit={saveExerciseType} className="grid gap-2">
+            <label className="grid gap-1 text-xs font-medium">
+              Exercise type
+              <select
+                value={exerciseType}
+                onChange={(event) => setExerciseType(event.target.value)}
+                required
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="" disabled>Select exercise type</option>
+                <option value="compound">Compound</option>
+                <option value="isolated">Isolated</option>
+              </select>
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={isSavingType}
+                className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {isSavingType ? "Saving..." : "Save type"}
+              </button>
+              <button
+                type="button"
+                disabled={isSavingType}
+                onClick={() => {
+                  setExerciseType(exercise["isolated/compound"] ?? "");
+                  setIsEditingType(false);
+                }}
+                className="h-8 rounded-md border px-3 text-xs font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm">
+              <span className="text-muted-foreground">Type: </span>
+              <span className="font-medium">
+                {exercise["isolated/compound"] || "Not set"}
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setExerciseType(exercise["isolated/compound"] ?? "");
+                setIsEditingType(true);
+                setMessage(null);
+              }}
+              className="h-8 shrink-0 rounded-md border px-3 text-xs font-medium hover:bg-accent"
+            >
+              Change
+            </button>
+          </div>
+        )}
       </div>
       {bestEstimatedOneRepMax != null && (
         <p className="mt-3 text-sm">
@@ -503,6 +603,55 @@ function getPreviousWorkoutSets(
   ) ?? [];
 }
 
+function getSetSuggestion(
+  previousSet: ExerciseLog | undefined,
+) {
+  if (
+    !previousSet ||
+    previousSet.weight == null ||
+    previousSet.weight <= 0 ||
+    previousSet.reps == null ||
+    previousSet.reps < 1
+  ) {
+    return null;
+  }
+
+  const minimumReps = 8;
+  const maximumReps = 12;
+
+  if (previousSet.reps < minimumReps) {
+    return {
+      weight: Math.round(previousSet.weight * 0.95 * 10) / 10,
+      reps: minimumReps,
+    };
+  }
+
+  if (previousSet.reps >= maximumReps) {
+    return {
+      weight: Math.round(previousSet.weight * 1.025 * 10) / 10,
+      reps: minimumReps,
+    };
+  }
+
+  return {
+    weight: previousSet.weight,
+    reps: Math.min(previousSet.reps + 1, maximumReps),
+  };
+}
+
+function isWorkoutSetComplete(set: WorkoutSet | undefined) {
+  if (!set || set.reps.trim() === "" || set.weight.trim() === "") return false;
+
+  const reps = Number(set.reps);
+  const weight = Number(set.weight);
+  return (
+    Number.isInteger(reps) &&
+    reps >= 1 &&
+    Number.isFinite(weight) &&
+    weight >= 0
+  );
+}
+
 function formatLoggedWeight(weight: number | null) {
   return weight == null
     ? "—"
@@ -644,22 +793,43 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
     setIsSaving(false);
   }
 
+  const canContinueWorkout = entries.every((entry) => {
+    const firstSet = entry.sets[0];
+    const exerciseSelected = exercises.some(
+      (exercise) =>
+        exercise.id === entry.exerciseId &&
+        exercise.primary_muscle_group.trim() === entry.muscleGroup,
+    );
+    if (!firstSet || !exerciseSelected) return false;
+
+    const reps = Number(firstSet.reps);
+    const weight = Number(firstSet.weight);
+    return (
+      firstSet.reps.trim() !== "" &&
+      Number.isInteger(reps) &&
+      reps >= 1 &&
+      firstSet.weight.trim() !== "" &&
+      Number.isFinite(weight) &&
+      weight >= 0
+    );
+  });
+
   return (
-    <section id="log-workout" className="mb-8 scroll-mt-6 rounded-xl border bg-card p-3 text-card-foreground shadow-sm sm:p-5">
-      <h2 className="text-xl font-bold sm:text-2xl">Log a workout</h2>
-      <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Choose a body group for each exercise, add sets, and include more groups if needed.
-      </p>
-      <form onSubmit={submitWorkout} className="mt-4 grid w-full gap-3 sm:mt-5 sm:max-w-2xl sm:gap-4">
-        <label className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-lg bg-muted/40 px-3 py-2 text-xs font-semibold sm:inline-grid sm:w-fit sm:grid-cols-1 sm:items-stretch sm:bg-transparent sm:p-0 sm:text-sm">
+    <section id="log-workout" className="mb-8 scroll-mt-6 bg-card text-card-foreground sm:rounded-xl sm:border sm:p-5 sm:shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold">Workout tracker</h1>
+        <label className="inline-flex items-center gap-2 rounded-full bg-muted/40 py-1 pl-3 pr-2 text-xs font-medium text-muted-foreground">
           <span>Workout date</span>
           <input
             type="date"
             value={workoutDate}
             readOnly
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-muted-foreground sm:h-10 sm:px-3"
+            aria-label="Workout date"
+            className="h-8 w-[9.25rem] rounded-md border-0 bg-transparent px-1 text-sm font-semibold text-foreground"
           />
         </label>
+      </div>
+      <form onSubmit={submitWorkout} className="grid w-full gap-3 sm:max-w-2xl sm:gap-4">
         {entries.map((entry, index) => {
           const selectedExercise = exercises.find(
             (exercise) => exercise.id === entry.exerciseId,
@@ -672,9 +842,9 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
             : null;
 
           return (
-            <fieldset key={index} className="min-w-0 overflow-hidden rounded-xl border border-primary/20 bg-card shadow-sm sm:border-2">
+            <fieldset key={index} className="min-w-0 overflow-hidden rounded-xl border border-primary/20 bg-card pb-2 sm:p-0 sm:shadow-sm">
             <legend className="sr-only">Exercise {index + 1}</legend>
-            <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-3 sm:gap-3 sm:px-4">
+            <div className="flex flex-wrap items-center gap-2 border-b border-primary/10 bg-muted/30 px-3 py-3 sm:gap-3 sm:rounded-t-xl sm:bg-muted/40 sm:px-4">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
                 {index + 1}
               </span>
@@ -700,7 +870,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                     type="button"
                     onClick={() => openSelectionEditor(index, entry)}
                     disabled={isSaving}
-                    className="ml-auto h-10 shrink-0 rounded-md border bg-background px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                    className="ml-auto h-10 shrink-0 rounded-md border-0 bg-muted/50 px-3 text-sm font-medium hover:bg-accent disabled:opacity-50 sm:border sm:bg-background"
                   >
                     Change
                   </button>
@@ -718,8 +888,8 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
               )}
             </div>
             {!(selectedExercise && entry.muscleGroup) && (
-              <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
-            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold sm:p-4">
+              <div className="grid gap-2 px-3 py-3 sm:grid-cols-2 sm:gap-3 sm:p-4">
+            <label className="grid content-start gap-2 rounded-lg bg-muted/25 p-3 text-xs font-semibold sm:border sm:bg-background sm:p-4">
               <span className="flex items-center gap-2 uppercase tracking-wide">
                 <span className="flex size-5 items-center justify-center rounded-full bg-sky-100 text-[10px] text-sky-800 dark:bg-sky-900 dark:text-sky-100">1</span>
                 Body group
@@ -745,7 +915,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                 ))}
               </select>
             </label>
-            <label className="grid content-start gap-2 rounded-lg border bg-background p-3 text-xs font-semibold sm:p-4">
+            <label className="grid content-start gap-2 rounded-lg bg-muted/25 p-3 text-xs font-semibold sm:border sm:bg-background sm:p-4">
               <span className="flex items-center gap-2 uppercase tracking-wide">
                 <span className="flex size-5 items-center justify-center rounded-full bg-violet-100 text-[10px] text-violet-800 dark:bg-violet-900 dark:text-violet-100">2</span>
                 Exercise
@@ -779,22 +949,31 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
             </label>
             </div>
             )}
-            <section aria-label={`Sets for ${selectedExercise?.exercise_id ?? `exercise ${index + 1}`}`} className="border-t bg-muted/15 p-3 sm:p-4">
-            <div className="mb-3 flex items-center justify-between gap-2 sm:gap-3">
-              <div>
-                <h3 className="flex items-center gap-2 text-sm font-bold">
-                  <span className="flex size-5 items-center justify-center rounded-full bg-emerald-100 text-[10px] text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100">3</span>
-                  Sets
-                </h3>
-                <p className="text-xs text-muted-foreground">Enter weight and reps for each set.</p>
-              </div>
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-100">
-                {entry.sets.length} {entry.sets.length === 1 ? "set" : "sets"}
-              </span>
-            </div>
+            {selectedExercise && entry.muscleGroup && (
+            <section aria-label={`Sets for ${selectedExercise.exercise_id}`} className="px-3 py-3 sm:border-t sm:bg-muted/15 sm:p-4">
             <div className="grid gap-2 sm:gap-3">
-              {entry.sets.map((set, setIndex) => (
-                <div key={setIndex} className="grid min-w-0 gap-2 rounded-lg border bg-background p-2.5 shadow-sm sm:p-3">
+              {entry.sets.map((set, setIndex) => {
+                const previousSet = selectedExercise
+                  ? previousSets.find(
+                      (previous) => previous.set === setIndex + 1,
+                    ) ??
+                    (setIndex === 0
+                      ? previousSets.find((previous) => previous.set == null)
+                      : undefined) ??
+                    (setIndex >= previousSets.length
+                      ? previousSets[previousSets.length - 1]
+                      : undefined)
+                  : undefined;
+                const suggestion = getSetSuggestion(previousSet);
+                const currentWeight = Number(set.weight);
+                const currentReps = Number(set.reps);
+                const currentEstimatedOneRepMax = calculateEstimatedOneRepMax(
+                  currentWeight,
+                  currentReps,
+                );
+
+                return (
+                  <div key={setIndex} className="grid min-w-0 gap-2 border-b border-muted-foreground/15 bg-transparent py-3 last:border-b-0 sm:rounded-lg sm:border sm:bg-background sm:p-3 sm:shadow-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="inline-flex h-7 items-center rounded-md bg-emerald-100 px-2 text-xs font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-100">
                       Set {setIndex + 1}
@@ -825,6 +1004,11 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                         step="0.01"
                         required
                         value={set.weight}
+                        placeholder={
+                          suggestion
+                            ? `Suggested: ${formatLoggedWeight(suggestion.weight)}`
+                            : undefined
+                        }
                         onChange={(event) =>
                           updateSet(index, setIndex, { weight: event.target.value })
                         }
@@ -839,6 +1023,9 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                         step="1"
                         required
                         value={set.reps}
+                        placeholder={
+                          suggestion ? `Suggested: ${suggestion.reps}` : undefined
+                        }
                         onChange={(event) =>
                           updateSet(index, setIndex, { reps: event.target.value })
                         }
@@ -846,23 +1033,6 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                       />
                     </label>
                   </div>
-                  {(() => {
-                    const previousSet = selectedExercise
-                      ? previousSets.find(
-                          (previous) => previous.set === setIndex + 1,
-                        ) ??
-                        (setIndex === 0
-                          ? previousSets.find((previous) => previous.set == null)
-                          : undefined)
-                      : undefined;
-                    const currentWeight = Number(set.weight);
-                    const currentReps = Number(set.reps);
-                    const currentEstimatedOneRepMax = calculateEstimatedOneRepMax(
-                      currentWeight,
-                      currentReps,
-                    );
-
-                    return (
                       <div className="grid grid-cols-2 gap-2">
                         <div className="min-w-0 rounded-md bg-muted px-2 py-2 text-[11px] leading-relaxed sm:px-3 sm:text-xs">
                           <p className="font-semibold">
@@ -915,24 +1085,26 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
                           )}
                         </div>
                       </div>
-                    );
-                  })()}
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  updateEntry(index, {
-                    sets: [...entry.sets, { reps: "", weight: "" }],
-                  })
-                }
-                disabled={isSaving}
-                className="h-10 w-full rounded-md border border-dashed px-3 text-sm font-medium hover:bg-background disabled:opacity-50 sm:w-auto"
-              >
-                Add set
-              </button>
+                  </div>
+                );
+              })}
+              {isWorkoutSetComplete(entry.sets[entry.sets.length - 1]) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateEntry(index, {
+                      sets: [...entry.sets, { reps: "", weight: "" }],
+                    })
+                  }
+                  disabled={isSaving}
+                  className="h-10 w-full rounded-md border border-dashed px-3 text-sm font-medium hover:bg-background disabled:opacity-50 sm:w-auto"
+                >
+                  Add set
+                </button>
+              )}
             </div>
             </section>
+            )}
             {entries.length > 1 && (
               <button
                 type="button"
@@ -1043,6 +1215,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
           );
         })}
 
+        {canContinueWorkout && (
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -1086,6 +1259,7 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
             {isSaving ? "Saving workout..." : "Save workout"}
           </button>
         </div>
+        )}
       </form>
       {message && <p role="status" className="mt-3 text-sm text-muted-foreground">{message}</p>}
     </section>
@@ -1095,11 +1269,14 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
 export function WorkoutsPage({ section }: { section: WorkoutSection }) {
   const [primaryMuscleGroup, setPrimaryMuscleGroup] = useState("");
   const [exerciseName, setExerciseName] = useState("");
+  const [exerciseType, setExerciseType] = useState("");
   const [exerciseSearch, setExerciseSearch] = useState("");
   const [muscleGroupFilter, setMuscleGroupFilter] = useState("");
   const [userExercises, setUserExercises] = useState<Exercise[]>([]);
   const [exerciseGoals, setExerciseGoals] = useState<ExerciseGoal[]>([]);
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLog[]>([]);
+  const [selectedHistoryExercise, setSelectedHistoryExercise] =
+    useState<SelectedHistoryExercise | null>(null);
   const [achievement, setAchievement] = useState<AchievedGoal | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1129,7 +1306,7 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
       const [exercisesResult, goalsResult, logsResult] = await Promise.all([
         supabase
           .from("exercises")
-          .select("id, exercise_id, primary_muscle_group")
+          .select('id, exercise_id, primary_muscle_group, "isolated/compound"')
           .eq("userprofile", user.id)
           .order("id", { ascending: false }),
         supabase
@@ -1182,9 +1359,10 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
       .insert({
         primary_muscle_group: primaryMuscleGroup.trim(),
         exercise_id: exerciseName.trim(),
+        "isolated/compound": exerciseType,
         userprofile: user.id,
       })
-      .select("id, exercise_id, primary_muscle_group")
+      .select('id, exercise_id, primary_muscle_group, "isolated/compound"')
       .single();
 
     if (error) {
@@ -1193,9 +1371,38 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
       setUserExercises((previous) => [data, ...previous]);
       setExerciseName("");
       setPrimaryMuscleGroup("");
+      setExerciseType("");
       setIsAddExerciseOpen(false);
     }
     setIsAddingExercise(false);
+  }
+
+  async function updateExerciseType(
+    exercise: Exercise,
+    exerciseType: "compound" | "isolated",
+  ) {
+    const { supabase, user, error: userError } = await getCurrentUser();
+    if (userError || !user) {
+      return userError?.message ?? "Sign in to update this exercise.";
+    }
+
+    const { data, error } = await supabase
+      .from("exercises")
+      .update({ "isolated/compound": exerciseType })
+      .eq("id", exercise.id)
+      .eq("userprofile", user.id)
+      .select('id, exercise_id, primary_muscle_group, "isolated/compound"')
+      .maybeSingle();
+
+    if (error) return error.message;
+    if (!data) {
+      return "No exercise was updated. Check that Supabase allows you to update your own exercises; see supabase/exercise-type-update.sql.";
+    }
+
+    setUserExercises((current) =>
+      current.map((item) => (item.id === data.id ? data : item)),
+    );
+    return null;
   }
 
   async function addGoal(
@@ -1393,7 +1600,9 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
 
   return (
     <main className="pb-8 sm:p-6 sm:pb-8">
-      <h1 className="mb-4 text-2xl font-bold">Workout tracker</h1>
+      {section !== "log-workout" && (
+        <h1 className="mb-4 text-2xl font-bold">Workout tracker</h1>
+      )}
 
       {section === "log-workout" && (
         <WorkoutForm
@@ -1413,14 +1622,38 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
           {groupedWorkouts.length > 0 ? (
             <ul className="divide-y rounded-lg border">
               {groupedWorkouts.slice(0, 20).map((workout, index) => {
+                const exercisesInWorkout = workout.logs.reduce<
+                  HistoryExerciseGroup[]
+                >((groups, log) => {
+                  const key = log.exercise_id.trim().toLocaleLowerCase();
+                  const muscleGroup =
+                    getExerciseForLog(log)?.primary_muscle_group ??
+                    "Body group";
+                  let exerciseGroup = groups.find(
+                    (group) =>
+                      group.exerciseId.trim().toLocaleLowerCase() === key &&
+                      group.muscleGroup === muscleGroup,
+                  );
+                  if (!exerciseGroup) {
+                    exerciseGroup = {
+                      exerciseId: log.exercise_id,
+                      muscleGroup,
+                      logs: [],
+                    };
+                    groups.push(exerciseGroup);
+                  }
+                  exerciseGroup.logs.push(log);
+                  return groups;
+                }, []);
+
                 return (
                   <li key={workout.key} className="p-4">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <h3 className="font-semibold">
                         Workout {index + 1}
                         <span className="ml-2 text-sm font-normal text-muted-foreground">
-                          {workout.logs.length}{" "}
-                          {workout.logs.length === 1 ? "exercise" : "exercises"}
+                          {exercisesInWorkout.length}{" "}
+                          {exercisesInWorkout.length === 1 ? "exercise" : "exercises"}
                         </span>
                       </h3>
                       <time
@@ -1430,29 +1663,46 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
                         {new Date(workout.createdAt).toLocaleDateString()}
                       </time>
                     </div>
-                    <ul className="divide-y rounded-md bg-muted/40">
-                      {workout.logs.map((log) => {
-                        const exercise = getExerciseForLog(log);
+                    <ul className="space-y-2">
+                      {exercisesInWorkout.map((exerciseGroup) => {
+                        const sets = [...exerciseGroup.logs].sort(
+                          (first, second) =>
+                            (first.set ?? 0) - (second.set ?? 0),
+                        );
+                        const bestSet = sets.reduce<ExerciseLog | null>(
+                          (best, log) =>
+                            best == null ||
+                            (log.weight ?? 0) > (best.weight ?? 0)
+                              ? log
+                              : best,
+                          null,
+                        );
+
                         return (
-                          <li
-                            key={log.id}
-                            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2 text-sm"
-                          >
-                            <span className="font-medium">
-                              {log.exercise_id}
-                              <span className="ml-2 font-normal text-muted-foreground">
-                                {exercise?.primary_muscle_group ?? "Body group"}
+                          <li key={exerciseGroup.exerciseId}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedHistoryExercise({
+                                  ...exerciseGroup,
+                                  workoutDate: workout.createdAt,
+                                })
+                              }
+                              className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-3 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <span className="font-medium">
+                                {exerciseGroup.exerciseId}
+                                <span className="ml-2 font-normal text-muted-foreground">
+                                  {exerciseGroup.muscleGroup}
+                                </span>
                               </span>
-                            </span>
-                            <span className="text-muted-foreground">
-                              Set {log.set ?? "—"} · {formatLoggedWeight(log.weight)} lbs
-                              {" × "}{log.reps ?? "—"} reps
-                              {" · Est. 1RM "}
-                              {formatLoggedWeight(
-                                calculateEstimatedOneRepMax(log.weight, log.reps),
-                              )}
-                              {" lbs"}
-                            </span>
+                              <span className="text-muted-foreground">
+                                {sets.length} {sets.length === 1 ? "set" : "sets"}
+                                {bestSet &&
+                                  ` · Best ${formatLoggedWeight(bestSet.weight)} lbs`}
+                                {" · View"}
+                              </span>
+                            </button>
                           </li>
                         );
                       })}
@@ -1467,6 +1717,69 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
             </p>
           )}
       </section>}
+
+      {section === "workout-history" && selectedHistoryExercise && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelectedHistoryExercise(null);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-exercise-title"
+            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border bg-card p-5 text-card-foreground shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="history-exercise-title" className="text-lg font-bold">
+                  {selectedHistoryExercise.exerciseId}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedHistoryExercise.muscleGroup} ·{" "}
+                  {new Date(selectedHistoryExercise.workoutDate).toLocaleDateString()}
+                </p>
+              </div>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setSelectedHistoryExercise(null)}
+                className="h-9 shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-accent"
+              >
+                Close
+              </button>
+            </div>
+            <h3 className="mt-5 text-sm font-semibold">Sets</h3>
+            <ul className="mt-2 divide-y rounded-lg border">
+              {[...selectedHistoryExercise.logs]
+                .sort((first, second) => (first.set ?? 0) - (second.set ?? 0))
+                .map((log, index) => (
+                  <li
+                    key={log.id}
+                    className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 px-3 py-3 text-sm"
+                  >
+                    <span className="font-medium">
+                      Set {log.set ?? index + 1}
+                    </span>
+                    <span className="text-right text-muted-foreground">
+                      {formatLoggedWeight(log.weight)} lbs × {log.reps ?? "—"} reps
+                    </span>
+                    <span className="col-span-2 text-right text-xs font-medium text-primary">
+                      Est. 1RM{" "}
+                      {formatLoggedWeight(
+                        calculateEstimatedOneRepMax(log.weight, log.reps),
+                      )}{" "}
+                      lbs
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        </div>
+      )}
 
       {section === "exercise-goals" && <section>
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -1533,6 +1846,7 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
                 )}
                 onAddGoal={addGoal}
                 onMarkGoalAchieved={markGoalAchieved}
+                onUpdateExerciseType={updateExerciseType}
               />
                 ))}
               </div>
@@ -1584,6 +1898,19 @@ export function WorkoutsPage({ section }: { section: WorkoutSection }) {
                   {BODY_GROUPS.map((group) => (
                     <option key={group} value={group}>{group}</option>
                   ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-medium">
+                Exercise type
+                <select
+                  value={exerciseType}
+                  onChange={(event) => setExerciseType(event.target.value)}
+                  required
+                  className="h-10 rounded-md border border-input bg-background px-3"
+                >
+                  <option value="" disabled>Select exercise type</option>
+                  <option value="compound">Compound</option>
+                  <option value="isolated">Isolated</option>
                 </select>
               </label>
               <div className="flex justify-end gap-2">
