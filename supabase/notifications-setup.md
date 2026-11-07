@@ -34,7 +34,11 @@ select vault.create_secret('YOUR_SERVICE_ROLE_KEY', 'service_role_key');
 
 ## 3. Create reminder tables and schedule delivery
 
-Run `reminders.sql` in the Supabase SQL Editor. Then run `reminders-cron.sql` to call the Edge Function once per minute.
+Run `reminders.sql` and `workout-rest-alerts.sql` in the Supabase SQL Editor.
+Deploy the updated `send-reminders` function, then run `reminders-cron.sql` to
+call the Edge Function once per minute for task and project reminders, and once
+per second for workout rest alerts. The once-per-second database job calls the
+Edge Function only when a rest alert is due.
 
 After changing `supabase/functions/send-reminders/index.js`, deploy the updated function:
 
@@ -52,17 +56,19 @@ Each task and project has a reminder control for a first date/time and a repeat 
 
 ## 5. Enable workout rest alerts while the phone is locked
 
-Run `workout-rest-alerts.sql` in the Supabase SQL Editor to create the private
-rest-alert schedule table. Deploy the updated `send-reminders` function after
-applying the SQL:
+The `workout-rest-alerts.sql` table setup and updated function above are
+required for this feature. The table stores the lock-screen alert preference
+with the scheduled timer, so the preference remains enabled across app visits.
 
-```bash
-supabase functions deploy send-reminders
-```
+In the installed app, enable **phone notifications** in Profile, then turn on
+**Workout rest timer notifications** in Profile. Rest alerts are checked by a
+dedicated once-per-second Supabase Cron job, so Supabase can send the push within
+about a second of the scheduled end time. The push provider, network, and device
+can still delay actual display. Push services may retain an alert for up to 24
+hours if the phone is temporarily offline, but a powered-off phone cannot display
+it until it is back on and connected.
 
-In the installed app, enable **phone notifications** in Profile, then enable
-**lock-screen alerts** on the Stopwatch page. When the stopwatch page is visible,
-the browser notification appears as soon as its timer reaches zero. When the page
-is hidden or the phone is locked, the existing once-per-minute Supabase cron
-sends the push alert, which can arrive up to about one minute later (and may be
-delayed by the device or network).
+After deploying the updated `send-reminders` function, rerun
+`workout-rest-alerts.sql` to add the saved preference column, then rerun
+`reminders-cron.sql` to update the jobs. This does not change the once-per-minute
+task/project reminder schedule.

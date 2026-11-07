@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { LogoutButton } from "@/components/logout-button";
 import { PushNotifications } from "@/components/push-notifications";
+import { WorkoutRestNotifications } from "@/components/workout-rest-notifications";
 import { createClient } from "@/lib/supabase/server";
 
 async function ProfileContent() {
@@ -37,6 +38,7 @@ async function ProfileContent() {
         </div>
       </dl>
       <PushNotifications />
+      <WorkoutRestNotifications userId={user.id} />
       <LogoutButton />
     </section>
   );

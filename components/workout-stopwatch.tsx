@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Bell,
   BellRing,
   CirclePause,
   CirclePlay,
@@ -10,7 +9,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { ensurePushSubscription } from "@/lib/push-subscription";
 
 type Lap = {
   id: number;
@@ -29,7 +27,10 @@ type StopwatchSession = {
 };
 
 const SESSION_STORAGE_KEY = "workout-stopwatch-session";
+const REST_DURATION_STORAGE_KEY = "workout-rest-duration-seconds";
 const DEFAULT_REST_SECONDS = 90;
+const MIN_REST_SECONDS = 15;
+const MAX_REST_SECONDS = 60 * 60;
 
 function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -92,10 +93,13 @@ export function WorkoutStopwatch({
   const [lastRestElapsedMs, setLastRestElapsedMs] = useState(0);
   const [restRemainingMs, setRestRemainingMs] = useState(0);
   const [restStartedAt, setRestStartedAt] = useState<number | null>(null);
+  const [restDurationSeconds, setRestDurationSeconds] =
+    useState(DEFAULT_REST_SECONDS);
+  const [restDurationLoaded, setRestDurationLoaded] = useState(false);
+  const [restDurationStorageError, setRestDurationStorageError] =
+    useState(false);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [storageError, setStorageError] = useState(false);
-  const [notificationPermission, setNotificationPermission] =
-    useState<NotificationPermission | "unsupported">("default");
   const [notificationError, setNotificationError] = useState<string | null>(
     null,
   );
@@ -136,15 +140,88 @@ export function WorkoutStopwatch({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setNotificationPermission(
-        "Notification" in window
-          ? window.Notification.permission
-          : "unsupported",
-      );
+      try {
+        const savedDuration = window.localStorage.getItem(
+          REST_DURATION_STORAGE_KEY,
+        );
+        if (savedDuration !== null) {
+          const parsedDuration = Number(savedDuration);
+          if (
+            !Number.isInteger(parsedDuration) ||
+            parsedDuration < MIN_REST_SECONDS ||
+            parsedDuration > MAX_REST_SECONDS
+          ) {
+            throw new Error("Saved rest duration is outside the supported range.");
+          }
+          setRestDurationSeconds(parsedDuration);
+        }
+      } catch (error) {
+        console.error("Could not restore the workout rest duration.", error);
+        setRestDurationStorageError(true);
+      } finally {
+        setRestDurationLoaded(true);
+      }
     }, 0);
 
     return () => window.clearTimeout(timeout);
   }, []);
+
+  function changeRestDuration(value: string) {
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 60) return;
+    const seconds = Math.round(minutes * 60);
+    if (seconds < MIN_REST_SECONDS || seconds > MAX_REST_SECONDS) return;
+
+    setRestDurationSeconds(seconds);
+    try {
+      window.localStorage.setItem(
+        REST_DURATION_STORAGE_KEY,
+        String(seconds),
+      );
+      setRestDurationStorageError(false);
+    } catch (error) {
+      console.error("Could not save the workout rest duration.", error);
+      setRestDurationStorageError(true);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restorePushAlertState() {
+      try {
+        const supabase = createClient();
+        const { data, error: alertTableError } = await supabase
+          .from("workout_rest_alerts")
+          .select("enabled")
+          .eq("userprofile", userId)
+          .maybeSingle();
+        if (alertTableError) {
+          throw new Error(
+            "Apply the workout rest alerts SQL setup before enabling lock-screen alerts.",
+          );
+        }
+
+        if (!cancelled) {
+          setPushAlertsEnabled(data?.enabled === true);
+        }
+      } catch (error) {
+        console.error("Could not restore workout rest alert setup.", error);
+        if (!cancelled) {
+          setNotificationError(
+            error instanceof Error
+              ? error.message
+              : "Could not verify lock-screen alert setup.",
+          );
+        }
+      }
+    }
+
+    void restorePushAlertState();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -214,7 +291,7 @@ export function WorkoutStopwatch({
       : 0);
   const restMsForDisplay =
     restRemainingMs === 0 && restStartedAt === null
-      ? DEFAULT_REST_SECONDS * 1000
+      ? restDurationSeconds * 1000
       : restRemainingMs;
   const restSeconds = Math.max(
     0,
@@ -273,6 +350,7 @@ export function WorkoutStopwatch({
           userprofile: userId,
           next_at: new Date(endsAt).toISOString(),
           claimed_at: null,
+          enabled: true,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "userprofile" },
@@ -293,51 +371,16 @@ export function WorkoutStopwatch({
       const supabase = createClient();
       const { error } = await supabase
         .from("workout_rest_alerts")
-        .delete()
+        .update({
+          next_at: null,
+          claimed_at: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("userprofile", userId);
       if (error) throw error;
     } catch (error) {
       console.error("Could not cancel the workout rest push alert.", error);
       setNotificationError("Could not cancel the scheduled phone alert.");
-    }
-  }
-
-  async function enableNotifications() {
-    try {
-      const subscribedUserId = await ensurePushSubscription();
-      if (subscribedUserId !== userId) {
-        throw new Error("The notification subscription belongs to another account.");
-      }
-      const supabase = createClient();
-      const { error: setupError } = await supabase
-        .from("workout_rest_alerts")
-        .select("userprofile")
-        .eq("userprofile", userId)
-        .maybeSingle();
-      if (setupError) {
-        throw new Error(
-          "Apply the workout rest alerts SQL setup before enabling lock-screen alerts.",
-        );
-      }
-
-      if (restStartedAt !== null && restSeconds > 0) {
-        const scheduled = await scheduleRestAlert(
-          restStartedAt + restRemainingMs,
-        );
-        if (!scheduled) return;
-      }
-      setNotificationPermission("granted");
-      setPushAlertsEnabled(true);
-      setNotificationError(null);
-    } catch (error) {
-      setNotificationPermission(
-        "Notification" in window ? window.Notification.permission : "unsupported",
-      );
-      setNotificationError(
-        error instanceof Error
-          ? error.message
-          : "Could not enable lock-screen notifications.",
-      );
     }
   }
 
@@ -375,7 +418,9 @@ export function WorkoutStopwatch({
     setNotificationError(null);
     setLastRestElapsedMs(currentElapsedMs);
     const remaining =
-      restRemainingMs > 0 ? restRemainingMs : DEFAULT_REST_SECONDS * 1000;
+      restRemainingMs > 0 && !restComplete
+        ? restRemainingMs
+        : restDurationSeconds * 1000;
     const startedAt = Date.now();
     setRestRemainingMs(remaining);
     setRestStartedAt(startedAt);
@@ -604,9 +649,27 @@ export function WorkoutStopwatch({
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-700 dark:text-orange-300">
                 Rest timer
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Take a 90-second break between sets
-              </p>
+              <label
+                htmlFor="rest-duration-minutes"
+                className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                Duration
+                <input
+                  id="rest-duration-minutes"
+                  type="number"
+                  min={MIN_REST_SECONDS / 60}
+                  max={MAX_REST_SECONDS / 60}
+                  step="0.25"
+                  value={Number((restDurationSeconds / 60).toFixed(2))}
+                  disabled={!restDurationLoaded || restRunning}
+                  onChange={(event) =>
+                    changeRestDuration(event.currentTarget.value)
+                  }
+                  className="h-8 w-20 rounded-md border bg-background px-2 text-center text-sm font-semibold text-foreground tabular-nums disabled:opacity-60"
+                  aria-describedby="rest-duration-help"
+                />
+                min
+              </label>
             </div>
             <div className="text-right">
               <span
@@ -618,6 +681,14 @@ export function WorkoutStopwatch({
               </span>
             </div>
           </div>
+          <p id="rest-duration-help" className="mt-1 text-[10px] text-muted-foreground">
+            Set 0.25–60 minutes. Your choice is saved on this device.
+          </p>
+          {restDurationStorageError && (
+            <p role="alert" className="mt-1 text-xs text-destructive">
+              Could not save the rest duration in this browser.
+            </p>
+          )}
           <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
             {restRunning ? (
               <button
@@ -647,35 +718,6 @@ export function WorkoutStopwatch({
               <RotateCcw aria-hidden="true" className="size-3.5" />
             </button>
           </div>
-          <button
-            type="button"
-            onClick={enableNotifications}
-            disabled={
-              pushAlertsEnabled ||
-              notificationPermission === "unsupported"
-            }
-            className="mt-2 inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg border bg-background px-2 text-xs font-semibold text-muted-foreground transition hover:bg-accent disabled:cursor-default disabled:opacity-70 sm:px-3"
-          >
-            {pushAlertsEnabled ? (
-              <BellRing
-                aria-hidden="true"
-                className="size-3.5 shrink-0 text-emerald-600"
-              />
-            ) : (
-              <Bell aria-hidden="true" className="size-3.5 shrink-0" />
-            )}
-            <span className="truncate">
-              {pushAlertsEnabled
-                ? "Lock-screen alerts on"
-                : notificationPermission === "unsupported"
-                  ? "Phone alerts unavailable"
-                  : "Enable lock-screen alerts"}
-            </span>
-          </button>
-          <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
-            Lock-screen alerts need the app installed on your Home Screen and
-            push notifications configured.
-          </p>
           {notificationError && (
             <p role="alert" className="mt-2 text-xs text-destructive">
               {notificationError}

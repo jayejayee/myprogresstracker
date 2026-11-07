@@ -15,7 +15,13 @@ self.addEventListener("push", (event) => {
           type: "window",
           includeUncontrolled: true,
         });
-        if (clients.some((client) => client.visibilityState === "visible")) {
+        const stopwatchIsVisible = clients.some((client) => {
+          if (client.visibilityState !== "visible") return false;
+          return new URL(client.url).pathname.endsWith(
+            "/protected/workouts/stopwatch",
+          );
+        });
+        if (stopwatchIsVisible) {
           return;
         }
       }

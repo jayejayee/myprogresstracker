@@ -144,235 +144,89 @@ Deno.serve(async (request) => {
   }
 
   const now = new Date();
-  const { data: reminders, error } = await supabase
-    .from("reminders")
-    .select("*")
-    .eq("enabled", true)
-    .lte("next_at", now.toISOString())
-    .order("next_at", { ascending: true })
-    .limit(100);
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
   let sent = 0;
-  for (const reminder of reminders ?? []) {
-    const sourceTable = reminder.entity_type === "project" ? "projects" : "todolist";
-    const sourceIdColumn = "id";
-    const sourceSelect = reminder.entity_type === "project" ? "id" : "id, completedstatus";
-    const { data: source, error: sourceError } = await supabase
-      .from(sourceTable)
-      .select(sourceSelect)
-      .eq(sourceIdColumn, reminder.entity_id)
-      .eq("userprofile", reminder.userprofile)
-      .maybeSingle();
+  let remindersDue = 0;
+  const mode = new URL(request.url).searchParams.get("mode");
 
-    if (sourceError) {
-      console.error("Could not verify reminder source", {
-        reminderId: reminder.id,
-        message: sourceError.message,
-      });
-      continue;
-    }
-
-    if (!source || source.completedstatus === true) {
-      const { error: disableError } = await supabase
-        .from("reminders")
-        .update({ enabled: false })
-        .eq("id", reminder.id)
-        .eq("next_at", reminder.next_at);
-      if (disableError) {
-        console.error("Could not disable inactive reminder", {
-          reminderId: reminder.id,
-          message: disableError.message,
-        });
-      }
-      continue;
-    }
-
-    const { data: subscriptions, error: subscriptionError } = await supabase
-      .from("push_subscriptions")
-      .select("endpoint, subscription")
-      .eq("userprofile", reminder.userprofile);
-
-    if (subscriptionError) {
-      console.error("Could not load reminder subscriptions", {
-        reminderId: reminder.id,
-        message: subscriptionError.message,
-      });
-      continue;
-    }
-    if (!subscriptions?.length) {
-      console.warn("No push subscriptions for due reminder", {
-        reminderId: reminder.id,
-        userprofile: reminder.userprofile,
-      });
-      continue;
-    }
-
-    const payload = JSON.stringify({
-      title: reminder.entity_title,
-      body: reminder.entity_type === "project" ? "Your project reminder is due." : "Your task reminder is due.",
-      url: "/protected",
-      tag: `${reminder.entity_type}-${reminder.entity_id}`,
-    });
-
-    let delivered = 0;
-    for (const subscriptionRow of subscriptions) {
-      if (!isTrustedPushEndpoint(subscriptionRow.endpoint)) {
-        console.error("Rejected untrusted push endpoint", {
-          reminderId: reminder.id,
-        });
-        await supabase
-          .from("push_subscriptions")
-          .delete()
-          .eq("endpoint", subscriptionRow.endpoint);
-        continue;
-      }
-
-      const pushHost = new URL(subscriptionRow.endpoint).host;
-      try {
-        await webpush.sendNotification(subscriptionRow.subscription, payload, {
-          TTL: 60 * 60 * 24,
-          urgency: "high",
-        });
-        sent += 1;
-        delivered += 1;
-        console.log("Push accepted by provider", {
-          reminderId: reminder.id,
-          pushHost,
-        });
-      } catch (pushError) {
-        const status = pushError?.statusCode;
-        console.error("Push delivery failed", {
-          reminderId: reminder.id,
-          pushHost,
-          status,
-          message: pushError?.message,
-        });
-        if (status === 404 || status === 410) {
-          await supabase
-            .from("push_subscriptions")
-            .delete()
-            .eq("endpoint", subscriptionRow.endpoint);
-        }
-      }
-    }
-
-    if (delivered === 0) continue;
-
-    const next = nextOccurrence(
-      reminder.next_at,
-      reminder.timezone,
-      reminder.repeat_rule,
-      now,
-    );
-    const { data: claimed, error: claimError } = await supabase
+  if (mode !== "rest-alerts") {
+    const { data: reminders, error } = await supabase
       .from("reminders")
-      .update({ next_at: next?.toISOString() ?? reminder.next_at, enabled: next !== null })
-      .eq("id", reminder.id)
-      .eq("next_at", reminder.next_at)
-      .select("id")
-      .maybeSingle();
+      .select("*")
+      .eq("enabled", true)
+      .lte("next_at", now.toISOString())
+      .order("next_at", { ascending: true })
+      .limit(100);
 
-    if (claimError) {
-      console.error("Could not advance delivered reminder", {
-        reminderId: reminder.id,
-        message: claimError.message,
-      });
-    } else if (!claimed) {
-      console.warn("Reminder was updated by another sender", { reminderId: reminder.id });
-    }
-  }
+    if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  const staleRestAlertsBefore = new Date(now.getTime() - 5 * 60 * 1000);
-  const { error: staleAlertError } = await supabase
-    .from("workout_rest_alerts")
-    .delete()
-    .lt("next_at", staleRestAlertsBefore.toISOString());
-  if (staleAlertError) {
-    console.error("Could not clear expired workout rest alerts", {
-      message: staleAlertError.message,
-    });
-  }
-
-  const { data: restAlerts, error: restAlertError } = await supabase
-    .from("workout_rest_alerts")
-    .select("userprofile, next_at")
-    .lte("next_at", now.toISOString())
-    .is("claimed_at", null)
-    .order("next_at", { ascending: true })
-    .limit(100);
-
-  if (restAlertError) {
-    console.error("Could not load workout rest alerts", {
-      message: restAlertError.message,
-    });
-  } else {
-    for (const restAlert of restAlerts ?? []) {
-      const claimTime = new Date();
-      const { data: claimedAlert, error: claimError } = await supabase
-        .from("workout_rest_alerts")
-        .update({ claimed_at: claimTime.toISOString() })
-        .eq("userprofile", restAlert.userprofile)
-        .eq("next_at", restAlert.next_at)
-        .is("claimed_at", null)
-        .select("userprofile")
+    remindersDue = reminders?.length ?? 0;
+    for (const reminder of reminders ?? []) {
+      const sourceTable = reminder.entity_type === "project" ? "projects" : "todolist";
+      const sourceIdColumn = "id";
+      const sourceSelect = reminder.entity_type === "project" ? "id" : "id, completedstatus";
+      const { data: source, error: sourceError } = await supabase
+        .from(sourceTable)
+        .select(sourceSelect)
+        .eq(sourceIdColumn, reminder.entity_id)
+        .eq("userprofile", reminder.userprofile)
         .maybeSingle();
 
-      if (claimError) {
-        console.error("Could not claim workout rest alert", {
-          message: claimError.message,
+      if (sourceError) {
+        console.error("Could not verify reminder source", {
+          reminderId: reminder.id,
+          message: sourceError.message,
         });
         continue;
       }
-      if (!claimedAlert) continue;
 
-      const releaseAlert = async () => {
-        const { error } = await supabase
-          .from("workout_rest_alerts")
-          .update({ claimed_at: null })
-          .eq("userprofile", restAlert.userprofile)
-          .eq("next_at", restAlert.next_at)
-          .eq("claimed_at", claimTime.toISOString());
-        if (error) {
-          console.error("Could not release workout rest alert", {
-            message: error.message,
+      if (!source || source.completedstatus === true) {
+        const { error: disableError } = await supabase
+          .from("reminders")
+          .update({ enabled: false })
+          .eq("id", reminder.id)
+          .eq("next_at", reminder.next_at);
+        if (disableError) {
+          console.error("Could not disable inactive reminder", {
+            reminderId: reminder.id,
+            message: disableError.message,
           });
         }
-      };
+        continue;
+      }
 
       const { data: subscriptions, error: subscriptionError } = await supabase
         .from("push_subscriptions")
         .select("endpoint, subscription")
-        .eq("userprofile", restAlert.userprofile);
+        .eq("userprofile", reminder.userprofile);
 
       if (subscriptionError) {
-        console.error("Could not load workout rest alert subscriptions", {
+        console.error("Could not load reminder subscriptions", {
+          reminderId: reminder.id,
           message: subscriptionError.message,
         });
-        await releaseAlert();
         continue;
       }
       if (!subscriptions?.length) {
-        console.warn("No push subscriptions for workout rest alert", {
-          userprofile: restAlert.userprofile,
+        console.warn("No push subscriptions for due reminder", {
+          reminderId: reminder.id,
+          userprofile: reminder.userprofile,
         });
-        await releaseAlert();
         continue;
       }
 
-      let delivered = 0;
       const payload = JSON.stringify({
-        title: "Rest complete",
-        body: "Your break is over. Ready for the next set?",
-        url: "/protected/workouts/stopwatch",
-        tag: "workout-rest-complete",
-        suppressIfVisible: true,
+        title: reminder.entity_title,
+        body: reminder.entity_type === "project" ? "Your project reminder is due." : "Your task reminder is due.",
+        url: "/protected",
+        tag: `${reminder.entity_type}-${reminder.entity_id}`,
       });
 
+      let delivered = 0;
       for (const subscriptionRow of subscriptions) {
         if (!isTrustedPushEndpoint(subscriptionRow.endpoint)) {
-          console.error("Rejected untrusted workout rest push endpoint");
+          console.error("Rejected untrusted push endpoint", {
+            reminderId: reminder.id,
+          });
           await supabase
             .from("push_subscriptions")
             .delete()
@@ -383,14 +237,19 @@ Deno.serve(async (request) => {
         const pushHost = new URL(subscriptionRow.endpoint).host;
         try {
           await webpush.sendNotification(subscriptionRow.subscription, payload, {
-            TTL: 60,
+            TTL: 60 * 60 * 24,
             urgency: "high",
           });
           sent += 1;
           delivered += 1;
+          console.log("Push accepted by provider", {
+            reminderId: reminder.id,
+            pushHost,
+          });
         } catch (pushError) {
           const status = pushError?.statusCode;
-          console.error("Workout rest push delivery failed", {
+          console.error("Push delivery failed", {
+            reminderId: reminder.id,
             pushHost,
             status,
             message: pushError?.message,
@@ -404,28 +263,173 @@ Deno.serve(async (request) => {
         }
       }
 
-      if (delivered > 0) {
-        const { error: deleteError } = await supabase
+      if (delivered === 0) continue;
+
+      const next = nextOccurrence(
+        reminder.next_at,
+        reminder.timezone,
+        reminder.repeat_rule,
+        now,
+      );
+      const { data: claimed, error: claimError } = await supabase
+        .from("reminders")
+        .update({ next_at: next?.toISOString() ?? reminder.next_at, enabled: next !== null })
+        .eq("id", reminder.id)
+        .eq("next_at", reminder.next_at)
+        .select("id")
+        .maybeSingle();
+
+      if (claimError) {
+        console.error("Could not advance delivered reminder", {
+          reminderId: reminder.id,
+          message: claimError.message,
+        });
+      } else if (!claimed) {
+        console.warn("Reminder was updated by another sender", { reminderId: reminder.id });
+      }
+    }
+  }
+
+  let restAlertsDue = 0;
+  if (mode !== "reminders") {
+    const { data: restAlerts, error: restAlertError } = await supabase
+      .from("workout_rest_alerts")
+      .select("userprofile, next_at")
+      .eq("enabled", true)
+      .lte("next_at", now.toISOString())
+      .is("claimed_at", null)
+      .order("next_at", { ascending: true })
+      .limit(100);
+
+    if (restAlertError) {
+      console.error("Could not load workout rest alerts", {
+        message: restAlertError.message,
+      });
+    } else {
+      restAlertsDue = restAlerts?.length ?? 0;
+      for (const restAlert of restAlerts ?? []) {
+        const claimTime = new Date();
+        const { data: claimedAlert, error: claimError } = await supabase
           .from("workout_rest_alerts")
-          .delete()
+          .update({ claimed_at: claimTime.toISOString() })
           .eq("userprofile", restAlert.userprofile)
           .eq("next_at", restAlert.next_at)
-          .eq("claimed_at", claimTime.toISOString());
-        if (deleteError) {
-          console.error("Could not clear delivered workout rest alert", {
-            message: deleteError.message,
+          .is("claimed_at", null)
+          .select("userprofile")
+          .maybeSingle();
+
+        if (claimError) {
+          console.error("Could not claim workout rest alert", {
+            message: claimError.message,
           });
+          continue;
         }
-      } else {
-        await releaseAlert();
+        if (!claimedAlert) continue;
+
+        const releaseAlert = async () => {
+          const { error } = await supabase
+            .from("workout_rest_alerts")
+            .update({ claimed_at: null })
+            .eq("userprofile", restAlert.userprofile)
+            .eq("next_at", restAlert.next_at)
+            .eq("claimed_at", claimTime.toISOString());
+          if (error) {
+            console.error("Could not release workout rest alert", {
+              message: error.message,
+            });
+          }
+        };
+
+        const { data: subscriptions, error: subscriptionError } = await supabase
+          .from("push_subscriptions")
+          .select("endpoint, subscription")
+          .eq("userprofile", restAlert.userprofile);
+
+        if (subscriptionError) {
+          console.error("Could not load workout rest alert subscriptions", {
+            message: subscriptionError.message,
+          });
+          await releaseAlert();
+          continue;
+        }
+        if (!subscriptions?.length) {
+          console.warn("No push subscriptions for workout rest alert", {
+            userprofile: restAlert.userprofile,
+          });
+          await releaseAlert();
+          continue;
+        }
+
+        let delivered = 0;
+        const payload = JSON.stringify({
+          title: "Rest complete",
+          body: "Your break is over. Ready for the next set?",
+          url: "/protected/workouts/stopwatch",
+          tag: "workout-rest-complete",
+          suppressIfVisible: true,
+        });
+
+        for (const subscriptionRow of subscriptions) {
+          if (!isTrustedPushEndpoint(subscriptionRow.endpoint)) {
+            console.error("Rejected untrusted workout rest push endpoint");
+            await supabase
+              .from("push_subscriptions")
+              .delete()
+              .eq("endpoint", subscriptionRow.endpoint);
+            continue;
+          }
+
+          const pushHost = new URL(subscriptionRow.endpoint).host;
+          try {
+            await webpush.sendNotification(subscriptionRow.subscription, payload, {
+              TTL: 24 * 60 * 60,
+              urgency: "high",
+            });
+            sent += 1;
+            delivered += 1;
+          } catch (pushError) {
+            const status = pushError?.statusCode;
+            console.error("Workout rest push delivery failed", {
+              pushHost,
+              status,
+              message: pushError?.message,
+            });
+            if (status === 404 || status === 410) {
+              await supabase
+                .from("push_subscriptions")
+                .delete()
+                .eq("endpoint", subscriptionRow.endpoint);
+            }
+          }
+        }
+
+        if (delivered > 0) {
+          const { error: updateError } = await supabase
+            .from("workout_rest_alerts")
+            .update({
+              next_at: null,
+              claimed_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("userprofile", restAlert.userprofile)
+            .eq("next_at", restAlert.next_at)
+            .eq("claimed_at", claimTime.toISOString());
+          if (updateError) {
+            console.error("Could not clear delivered workout rest alert", {
+              message: updateError.message,
+            });
+          }
+        } else {
+          await releaseAlert();
+        }
       }
     }
   }
 
   console.log("Reminder check complete", {
-    due: reminders?.length ?? 0,
-    restAlerts: restAlerts?.length ?? 0,
+    due: remindersDue,
+    restAlerts: restAlertsDue,
     sent,
   });
-  return Response.json({ sent, restAlerts: restAlerts?.length ?? 0 });
+  return Response.json({ sent, restAlerts: restAlertsDue });
 });
