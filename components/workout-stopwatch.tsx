@@ -166,10 +166,8 @@ export function WorkoutStopwatch({
     return () => window.clearTimeout(timeout);
   }, []);
 
-  function changeRestDuration(value: string) {
-    const minutes = Number(value);
-    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 60) return;
-    const seconds = Math.round(minutes * 60);
+  function changeRestDuration(value: number) {
+    const seconds = Math.round(value);
     if (seconds < MIN_REST_SECONDS || seconds > MAX_REST_SECONDS) return;
 
     setRestDurationSeconds(seconds);
@@ -650,25 +648,25 @@ export function WorkoutStopwatch({
                 Rest timer
               </p>
               <label
-                htmlFor="rest-duration-minutes"
+                htmlFor="rest-duration-seconds"
                 className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"
               >
                 Duration
                 <input
-                  id="rest-duration-minutes"
+                  id="rest-duration-seconds"
                   type="number"
-                  min={MIN_REST_SECONDS / 60}
-                  max={MAX_REST_SECONDS / 60}
-                  step="0.25"
-                  value={Number((restDurationSeconds / 60).toFixed(2))}
+                  min={MIN_REST_SECONDS}
+                  max={MAX_REST_SECONDS}
+                  step="1"
+                  value={restDurationSeconds}
                   disabled={!restDurationLoaded || restRunning}
                   onChange={(event) =>
-                    changeRestDuration(event.currentTarget.value)
+                    changeRestDuration(event.currentTarget.valueAsNumber)
                   }
                   className="h-8 w-20 rounded-md border bg-background px-2 text-center text-sm font-semibold text-foreground tabular-nums disabled:opacity-60"
                   aria-describedby="rest-duration-help"
                 />
-                min
+                sec
               </label>
             </div>
             <div className="text-right">
@@ -682,7 +680,7 @@ export function WorkoutStopwatch({
             </div>
           </div>
           <p id="rest-duration-help" className="mt-1 text-[10px] text-muted-foreground">
-            Set 0.25–60 minutes. Your choice is saved on this device.
+            Set 15–3600 seconds. Your choice is saved on this device.
           </p>
           {restDurationStorageError && (
             <p role="alert" className="mt-1 text-xs text-destructive">

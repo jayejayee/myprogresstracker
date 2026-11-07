@@ -366,7 +366,6 @@ Deno.serve(async (request) => {
           body: "Your break is over. Ready for the next set?",
           url: "/protected/workouts/stopwatch",
           tag: "workout-rest-complete",
-          suppressIfVisible: true,
         });
 
         for (const subscriptionRow of subscriptions) {

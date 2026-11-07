@@ -9,31 +9,13 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    (async () => {
-      if (payload.suppressIfVisible) {
-        const clients = await self.clients.matchAll({
-          type: "window",
-          includeUncontrolled: true,
-        });
-        const stopwatchIsVisible = clients.some((client) => {
-          if (client.visibilityState !== "visible") return false;
-          return new URL(client.url).pathname.endsWith(
-            "/protected/workouts/stopwatch",
-          );
-        });
-        if (stopwatchIsVisible) {
-          return;
-        }
-      }
-
-      await self.registration.showNotification(payload.title || "Task reminder", {
-        body: payload.body || "You have a reminder.",
-        icon: "/opengraph-image.png",
-        badge: "/opengraph-image.png",
-        data: { url: payload.url || "/protected" },
-        tag: payload.tag || "task-reminder",
-      });
-    })(),
+    self.registration.showNotification(payload.title || "Task reminder", {
+      body: payload.body || "You have a reminder.",
+      icon: "/opengraph-image.png",
+      badge: "/opengraph-image.png",
+      data: { url: payload.url || "/protected" },
+      tag: payload.tag || "task-reminder",
+    }),
   );
 });
 
