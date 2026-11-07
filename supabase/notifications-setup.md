@@ -49,3 +49,20 @@ If reminders stop arriving, check the `send-reminders` Edge Function logs for pu
 Deploy the website over HTTPS. On iPhone, open it in Safari, use **Share > Add to Home Screen**, launch the installed app, open **Profile**, and tap **Enable phone notifications**. On Android, open the HTTPS site in a supported browser and enable notifications in **Profile**.
 
 Each task and project has a reminder control for a first date/time and a repeat rule: no repeat, daily, weekly, or monthly. The selected device's timezone is stored with the schedule.
+
+## 5. Enable workout rest alerts while the phone is locked
+
+Run `workout-rest-alerts.sql` in the Supabase SQL Editor to create the private
+rest-alert schedule table. Deploy the updated `send-reminders` function after
+applying the SQL:
+
+```bash
+supabase functions deploy send-reminders
+```
+
+In the installed app, enable **phone notifications** in Profile, then enable
+**lock-screen alerts** on the Stopwatch page. When the stopwatch page is visible,
+the browser notification appears as soon as its timer reaches zero. When the page
+is hidden or the phone is locked, the existing once-per-minute Supabase cron
+sends the push alert, which can arrive up to about one minute later (and may be
+delayed by the device or network).

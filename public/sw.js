@@ -9,13 +9,25 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || "Task reminder", {
-      body: payload.body || "You have a reminder.",
-      icon: "/opengraph-image.png",
-      badge: "/opengraph-image.png",
-      data: { url: payload.url || "/protected" },
-      tag: payload.tag || "task-reminder",
-    }),
+    (async () => {
+      if (payload.suppressIfVisible) {
+        const clients = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        if (clients.some((client) => client.visibilityState === "visible")) {
+          return;
+        }
+      }
+
+      await self.registration.showNotification(payload.title || "Task reminder", {
+        body: payload.body || "You have a reminder.",
+        icon: "/opengraph-image.png",
+        badge: "/opengraph-image.png",
+        data: { url: payload.url || "/protected" },
+        tag: payload.tag || "task-reminder",
+      });
+    })(),
   );
 });
 

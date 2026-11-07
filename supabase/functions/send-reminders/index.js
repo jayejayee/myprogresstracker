@@ -284,6 +284,148 @@ Deno.serve(async (request) => {
     }
   }
 
-  console.log("Reminder check complete", { due: reminders?.length ?? 0, sent });
-  return Response.json({ sent });
+  const staleRestAlertsBefore = new Date(now.getTime() - 5 * 60 * 1000);
+  const { error: staleAlertError } = await supabase
+    .from("workout_rest_alerts")
+    .delete()
+    .lt("next_at", staleRestAlertsBefore.toISOString());
+  if (staleAlertError) {
+    console.error("Could not clear expired workout rest alerts", {
+      message: staleAlertError.message,
+    });
+  }
+
+  const { data: restAlerts, error: restAlertError } = await supabase
+    .from("workout_rest_alerts")
+    .select("userprofile, next_at")
+    .lte("next_at", now.toISOString())
+    .is("claimed_at", null)
+    .order("next_at", { ascending: true })
+    .limit(100);
+
+  if (restAlertError) {
+    console.error("Could not load workout rest alerts", {
+      message: restAlertError.message,
+    });
+  } else {
+    for (const restAlert of restAlerts ?? []) {
+      const claimTime = new Date();
+      const { data: claimedAlert, error: claimError } = await supabase
+        .from("workout_rest_alerts")
+        .update({ claimed_at: claimTime.toISOString() })
+        .eq("userprofile", restAlert.userprofile)
+        .eq("next_at", restAlert.next_at)
+        .is("claimed_at", null)
+        .select("userprofile")
+        .maybeSingle();
+
+      if (claimError) {
+        console.error("Could not claim workout rest alert", {
+          message: claimError.message,
+        });
+        continue;
+      }
+      if (!claimedAlert) continue;
+
+      const releaseAlert = async () => {
+        const { error } = await supabase
+          .from("workout_rest_alerts")
+          .update({ claimed_at: null })
+          .eq("userprofile", restAlert.userprofile)
+          .eq("next_at", restAlert.next_at)
+          .eq("claimed_at", claimTime.toISOString());
+        if (error) {
+          console.error("Could not release workout rest alert", {
+            message: error.message,
+          });
+        }
+      };
+
+      const { data: subscriptions, error: subscriptionError } = await supabase
+        .from("push_subscriptions")
+        .select("endpoint, subscription")
+        .eq("userprofile", restAlert.userprofile);
+
+      if (subscriptionError) {
+        console.error("Could not load workout rest alert subscriptions", {
+          message: subscriptionError.message,
+        });
+        await releaseAlert();
+        continue;
+      }
+      if (!subscriptions?.length) {
+        console.warn("No push subscriptions for workout rest alert", {
+          userprofile: restAlert.userprofile,
+        });
+        await releaseAlert();
+        continue;
+      }
+
+      let delivered = 0;
+      const payload = JSON.stringify({
+        title: "Rest complete",
+        body: "Your break is over. Ready for the next set?",
+        url: "/protected/workouts/stopwatch",
+        tag: "workout-rest-complete",
+        suppressIfVisible: true,
+      });
+
+      for (const subscriptionRow of subscriptions) {
+        if (!isTrustedPushEndpoint(subscriptionRow.endpoint)) {
+          console.error("Rejected untrusted workout rest push endpoint");
+          await supabase
+            .from("push_subscriptions")
+            .delete()
+            .eq("endpoint", subscriptionRow.endpoint);
+          continue;
+        }
+
+        const pushHost = new URL(subscriptionRow.endpoint).host;
+        try {
+          await webpush.sendNotification(subscriptionRow.subscription, payload, {
+            TTL: 60,
+            urgency: "high",
+          });
+          sent += 1;
+          delivered += 1;
+        } catch (pushError) {
+          const status = pushError?.statusCode;
+          console.error("Workout rest push delivery failed", {
+            pushHost,
+            status,
+            message: pushError?.message,
+          });
+          if (status === 404 || status === 410) {
+            await supabase
+              .from("push_subscriptions")
+              .delete()
+              .eq("endpoint", subscriptionRow.endpoint);
+          }
+        }
+      }
+
+      if (delivered > 0) {
+        const { error: deleteError } = await supabase
+          .from("workout_rest_alerts")
+          .delete()
+          .eq("userprofile", restAlert.userprofile)
+          .eq("next_at", restAlert.next_at)
+          .eq("claimed_at", claimTime.toISOString());
+        if (deleteError) {
+          console.error("Could not clear delivered workout rest alert", {
+            message: deleteError.message,
+          });
+        }
+      } else {
+        await releaseAlert();
+      }
+    }
+  }
+
+  console.log("Reminder check complete", {
+    due: reminders?.length ?? 0,
+    restAlerts: restAlerts?.length ?? 0,
+    sent,
+  });
+  return Response.json({ sent, restAlerts: restAlerts?.length ?? 0 });
 });
