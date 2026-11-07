@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { ExerciseGoalsCard } from "@/components/exercise-goals-card";
-import { FocusTimer } from "@/components/focus-timer";
+import { HomeDashboardFilters } from "@/components/home-dashboard-filters";
+import { HomeOverallStats } from "@/components/home-overall-stats";
+import { TodaysPlanCard } from "@/components/todays-plan-card";
+import { TrainingRhythmCard } from "@/components/training-rhythm-card";
 import { WorkoutStreak } from "@/components/workout-streak";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
@@ -50,6 +54,8 @@ async function loadWorkoutLogs(
 }
 
 async function HomeDashboard() {
+  await connection();
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -61,11 +67,11 @@ async function HomeDashboard() {
     await Promise.all([
       supabase
         .from("todolist")
-        .select("id, todo, completedstatus")
+        .select("id, todo, todoby, completedstatus")
         .eq("userprofile", user.id),
       supabase
         .from("projects")
-        .select("id, name")
+        .select("id, name, due_date")
         .eq("userprofile", user.id),
       loadWorkoutLogs(supabase, user.id),
       supabase
@@ -95,41 +101,6 @@ async function HomeDashboard() {
         log.workout_id ?? `legacy-${log.created_at.slice(0, 10)}`,
     ),
   );
-  const localDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-  const today = new Date();
-  const workoutSessionsByDay = new Map<string, Set<string>>();
-  for (const log of logs) {
-    const dateKey = localDateKey(new Date(log.created_at));
-    const sessions = workoutSessionsByDay.get(dateKey) ?? new Set<string>();
-    sessions.add(
-      log.workout_id == null ? `legacy-${dateKey}` : `workout-${log.workout_id}`,
-    );
-    workoutSessionsByDay.set(dateKey, sessions);
-  }
-  const weekActivity = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - (6 - index));
-    const dateKey = localDateKey(date);
-    return {
-      dateKey,
-      day: new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date),
-      date: new Intl.DateTimeFormat(undefined, { day: "numeric" }).format(date),
-      isToday: index === 6,
-      workouts: workoutSessionsByDay.get(dateKey)?.size ?? 0,
-    };
-  });
-  const weeklyWorkoutCount = weekActivity.reduce(
-    (total, day) => total + day.workouts,
-    0,
-  );
-  const activeWorkoutDays = weekActivity.filter((day) => day.workouts > 0).length;
-  const peakDailyWorkouts = Math.max(1, ...weekActivity.map((day) => day.workouts));
   const muscleGroupByExercise = new Map(
     exercises.map((exercise) => [
       exercise.exercise_id.trim().toLocaleLowerCase(),
@@ -168,7 +139,7 @@ async function HomeDashboard() {
       if (second.lastTrained == null) return 1;
       return first.lastTrained - second.lastTrained;
     });
-  const dashboardNow = today.getTime();
+  const dashboardNow = new Date().getTime();
   const balanceCutoff = dashboardNow - 7 * 24 * 60 * 60 * 1000;
   const achievedGoals = goals.filter((goal) => goal.goal_acheived === true);
   const activeGoals = goals.filter(
@@ -278,7 +249,7 @@ async function HomeDashboard() {
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
-                href="/protected?view=tasks"
+                href="/protected/tasks"
                 className="inline-flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-violet-700 shadow-sm transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-violet-600"
               >
                 <CheckCircle2 aria-hidden="true" className="size-4" />
@@ -286,7 +257,7 @@ async function HomeDashboard() {
                 <ArrowUpRight aria-hidden="true" className="size-4" />
               </Link>
               <Link
-                href="/protected/workouts"
+                href="/protected/workouts/log"
                 className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <Dumbbell aria-hidden="true" className="size-4" />
@@ -309,14 +280,26 @@ async function HomeDashboard() {
         </p>
       )}
 
-      <FocusTimer
-        userId={user.id}
-        tasks={todos
-          .filter((todo) => !todo.completedstatus)
-          .map((todo) => ({ id: todo.id, title: todo.todo }))}
+      <HomeOverallStats
+        completedTasks={completedTasks}
+        totalTasks={todos.length}
+        activeProjects={projects.length}
+        workouts={workoutCount.size}
+      />
+      <TodaysPlanCard
+        tasks={todos.map((todo) => ({
+          id: todo.id,
+          title: todo.todo,
+          dueDate: todo.todoby,
+          completed: todo.completedstatus,
+        }))}
       />
 
-      <section aria-label="Progress summaries" className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">Explore your progress</h2>
+      <HomeDashboardFilters
+        tasksContent={
+          <section aria-label="Tasks and projects" className="grid gap-4 sm:grid-cols-2">
         <article className="group relative overflow-hidden rounded-2xl border bg-card p-5 text-card-foreground shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -353,7 +336,7 @@ async function HomeDashboard() {
               {projects.length} active {projects.length === 1 ? "project" : "projects"}
             </span>
             <Link
-              href="/protected?view=tasks"
+              href="/protected/tasks"
               className="inline-flex items-center gap-1 font-semibold text-primary transition group-hover:gap-1.5"
             >
               Open tasks <ArrowUpRight aria-hidden="true" className="size-4" />
@@ -361,6 +344,53 @@ async function HomeDashboard() {
           </div>
         </article>
 
+        <article className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                PROJECTS
+              </p>
+              <h2 className="mt-1 font-semibold">Your projects</h2>
+            </div>
+            <span className="flex size-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <FolderKanban aria-hidden="true" className="size-5" />
+            </span>
+          </div>
+          {projects.length ? (
+            <ul className="mt-3 divide-y">
+              {projects.slice(0, 4).map((project) => (
+                <li
+                  key={project.id}
+                  className="flex items-center justify-between gap-3 py-2.5 text-sm"
+                >
+                  <span className="min-w-0 truncate font-medium">
+                    {project.name}
+                  </span>
+                  {project.due_date && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      Due {project.due_date}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-xl bg-muted/40 p-3 text-sm text-muted-foreground">
+              Your projects will appear here.
+            </p>
+          )}
+          <Link
+            href="/protected/projects"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary"
+          >
+            View all projects <ArrowUpRight aria-hidden="true" className="size-4" />
+          </Link>
+        </article>
+
+          </section>
+        }
+        workoutsContent={
+          <section aria-label="Workout progress" className="grid gap-4 sm:grid-cols-2">
         <article className="group relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-orange-500/10 p-5 text-card-foreground shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -456,76 +486,12 @@ async function HomeDashboard() {
           </article>
         )}
 
-        <article className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-sky-500/5 p-5 text-card-foreground shadow-sm sm:col-span-2 sm:p-6">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-10 -top-20 size-48 rounded-full bg-sky-400/10 blur-3xl"
-          />
-          <div className="relative flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-600 dark:text-sky-400">
-                YOUR LAST 7 DAYS
-              </p>
-              <h2 className="mt-1 text-lg font-semibold">Training rhythm</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{weeklyWorkoutCount}</span>{" "}
-              {weeklyWorkoutCount === 1 ? "workout" : "workouts"} ·{" "}
-              <span className="font-semibold text-foreground">{activeWorkoutDays}</span>{" "}
-              active {activeWorkoutDays === 1 ? "day" : "days"}
-            </p>
-          </div>
-          <div className="relative mt-5 grid grid-cols-7 gap-2 sm:gap-3">
-            {weekActivity.map((day) => (
-              <div
-                key={day.dateKey}
-                className={`flex min-w-0 flex-col items-center rounded-xl px-1 py-3 sm:px-2 ${
-                  day.isToday ? "bg-sky-500/10 ring-1 ring-sky-500/20" : "bg-muted/35"
-                }`}
-                aria-label={`${day.day}, ${day.date}: ${day.workouts} ${
-                  day.workouts === 1 ? "workout" : "workouts"
-                }`}
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
-                  {day.day}
-                </span>
-                <span className="mt-1 text-xs font-medium tabular-nums text-muted-foreground">
-                  {day.date}
-                </span>
-                <div className="mt-3 flex h-12 items-end">
-                  <div
-                    className={`w-5 rounded-full transition-all sm:w-7 ${
-                      day.workouts > 0
-                        ? day.isToday
-                          ? "bg-gradient-to-t from-blue-600 to-sky-400"
-                          : "bg-gradient-to-t from-sky-600/80 to-cyan-400"
-                        : "h-2 bg-muted-foreground/15"
-                    }`}
-                    style={
-                      day.workouts > 0
-                        ? { height: `${Math.max(14, (day.workouts / peakDailyWorkouts) * 48)}px` }
-                        : undefined
-                    }
-                  />
-                </div>
-                <span className="mt-2 text-[10px] font-bold tabular-nums text-foreground/80">
-                  {day.workouts || "·"}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="relative mt-4 flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Each bar represents workouts logged that day.
-            </p>
-            <Link
-              href="/protected/workouts/history"
-              className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:gap-1.5"
-            >
-              History <ArrowUpRight aria-hidden="true" className="size-4" />
-            </Link>
-          </div>
-        </article>
+        <TrainingRhythmCard
+          logs={logs.map((log) => ({
+            createdAt: log.created_at,
+            workoutId: log.workout_id,
+          }))}
+        />
 
         <article className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:col-span-2 sm:p-6">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -659,7 +625,10 @@ async function HomeDashboard() {
             </p>
           )}
         </article>
-      </section>
+          </section>
+        }
+      />
+      </div>
     </div>
   );
 }

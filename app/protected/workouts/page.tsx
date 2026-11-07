@@ -1,7 +1,5 @@
-"use client";
-
-import { WorkoutsPage } from "@/components/workouts-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <WorkoutsPage section="log-workout" />;
+  redirect("/protected/workouts/log");
 }

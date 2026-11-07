@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DottedProgress } from "@/components/dotted-progress";
 import { ReminderSettings, type Reminder } from "@/components/reminder-settings";
 import { ArrowLeft, ArrowUpDown, CalendarDays, FolderOpen, FolderPlus, Plus, Search, Trash2 } from "lucide-react";
@@ -64,6 +64,7 @@ type Project = {
 };
 
 type TodoListProps = {
+  view: "projects" | "tasks";
   initialTodos: Todo[];
   initialProjects: Project[];
   initialReminders: Reminder[];
@@ -71,17 +72,23 @@ type TodoListProps = {
 };
 
 export function TodoList({
+  view,
   initialTodos,
   initialProjects,
   initialReminders,
   loadError,
 }: TodoListProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [todos, setTodos] = useState(initialTodos);
   const [projects, setProjects] = useState(initialProjects);
   const [showWelcome, setShowWelcome] = useState(true);
-  const activeView = searchParams.get("view") === "tasks" ? "tasks" : "projects";
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const projectIdFromUrl = Number(searchParams.get("projectId"));
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
+    Number.isInteger(projectIdFromUrl) && projectIdFromUrl > 0
+      ? projectIdFromUrl
+      : null,
+  );
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDueDate, setNewProjectDueDate] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
@@ -99,10 +106,6 @@ export function TodoList({
   const [isAdding, setIsAdding] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState(loadError);
-
-  function changeActiveView(view: "projects" | "tasks") {
-    window.history.replaceState(null, "", `/protected?view=${view}`);
-  }
 
   const today = getLocalToday();
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -195,7 +198,7 @@ export function TodoList({
       setIsAddProjectOpen(false);
       setSelectedProjectId(data.id);
       setDayFilter("all");
-      changeActiveView("tasks");
+      router.push(`/protected/tasks?projectId=${data.id}`);
       setShowWelcome(false);
     }
 
@@ -352,7 +355,7 @@ export function TodoList({
           </p>
         )}
 
-        {activeView === "projects" ? (
+        {view === "projects" ? (
           <div>
             <h2 className="mb-4 text-lg font-semibold">Projects</h2>
             <div className="flex items-center gap-2">
@@ -450,7 +453,7 @@ export function TodoList({
                         type="button"
                         onClick={() => {
                           setSelectedProjectId(project.id);
-                          changeActiveView("tasks");
+                          router.push(`/protected/tasks?projectId=${project.id}`);
                           setDayFilter("all");
                           setShowWelcome(false);
                         }}
@@ -501,7 +504,7 @@ export function TodoList({
                   className="mb-3 -ml-3"
                   onClick={() => {
                     setSelectedProjectId(null);
-                    changeActiveView("projects");
+                    router.push("/protected/projects");
                     setShowWelcome(false);
                   }}
                 >

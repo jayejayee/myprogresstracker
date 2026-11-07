@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CirclePause, CirclePlay, Flag, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Bell,
+  BellRing,
+  CirclePause,
+  CirclePlay,
+  Flag,
+  RotateCcw,
+} from "lucide-react";
 
 type Lap = {
   id: number;
@@ -79,10 +86,55 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
   const [restStartedAt, setRestStartedAt] = useState<number | null>(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [storageError, setStorageError] = useState(false);
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermission | "unsupported">("default");
+  const [notificationError, setNotificationError] = useState<string | null>(
+    null,
+  );
+  const notifiedRestStartRef = useRef<number | null>(null);
+
+  async function notifyRestComplete(): Promise<string | null> {
+    try {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (registration) {
+          await registration.showNotification("Rest complete", {
+            body: "Your break is over. Ready for the next set?",
+            icon: "/opengraph-image.png",
+            tag: "workout-rest-complete",
+          });
+          return null;
+        }
+      }
+
+      new Notification("Rest complete", {
+        body: "Your break is over. Ready for the next set?",
+        icon: "/opengraph-image.png",
+        tag: "workout-rest-complete",
+      });
+      return null;
+    } catch (error) {
+      return error instanceof Error
+        ? `Could not show browser notification: ${error.message}`
+        : "Could not show browser notification.";
+    }
+  }
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 50);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setNotificationPermission(
+        "Notification" in window
+          ? window.Notification.permission
+          : "unsupported",
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -177,7 +229,7 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
   const hourHandRotation = (currentElapsedMs / 120_000) % 360;
 
   useEffect(() => {
-    if (!restComplete) return;
+    if (!restComplete || restStartedAt === null) return;
 
     const timeout = window.setTimeout(() => {
       setLastRestElapsedMs(
@@ -188,8 +240,43 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
       );
     }, 0);
 
+    if (notifiedRestStartRef.current !== restStartedAt) {
+      notifiedRestStartRef.current = restStartedAt;
+      if (
+        "Notification" in window &&
+        window.Notification.permission === "granted"
+      ) {
+        void notifyRestComplete().then((error) => {
+          if (error) setNotificationError(error);
+        });
+      }
+    }
+
     return () => window.clearTimeout(timeout);
-  }, [elapsedMs, restComplete, startedAt]);
+  }, [elapsedMs, restComplete, restStartedAt, startedAt]);
+
+  async function enableNotifications() {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+
+    try {
+      const permission = await window.Notification.requestPermission();
+      setNotificationPermission(permission);
+      setNotificationError(
+        permission === "denied"
+          ? "Notifications are blocked in your browser settings."
+          : null,
+      );
+    } catch (error) {
+      setNotificationError(
+        error instanceof Error
+          ? `Could not enable notifications: ${error.message}`
+          : "Could not enable notifications.",
+      );
+    }
+  }
 
   function startStopwatch() {
     setStartedAt(Date.now());
@@ -222,6 +309,7 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
   }
 
   function startRest() {
+    setNotificationError(null);
     setLastRestElapsedMs(currentElapsedMs);
     setRestRemainingMs((remaining) =>
       remaining > 0 ? remaining : DEFAULT_REST_SECONDS * 1000,
@@ -288,8 +376,8 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
           storage is available.
         </p>
       )}
-      <div className="relative mt-1 grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(13rem,0.8fr)] md:items-center">
-        <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center md:justify-start">
+      <div className="relative mt-1 grid gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(13rem,0.85fr)] md:items-stretch">
+        <div className="flex flex-col items-center gap-4 rounded-2xl border bg-background/50 p-4 sm:flex-row sm:justify-center md:justify-start">
           <div className="flex flex-col items-center gap-2">
           <div className="relative flex size-48 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 via-sky-500 to-blue-700 p-[3px] shadow-[0_0_32px_-8px_rgba(14,165,233,0.65)]">
             <div className="absolute inset-1 rounded-full border border-white/40" />
@@ -388,72 +476,92 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
               />
             </svg>
           </div>
-          <div className="flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1 shadow-sm">
-            <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              Elapsed
-            </span>
-            <span
-              role="timer"
-              aria-label={`Total time since start: ${formatStopwatchTime(currentElapsedMs, true)}`}
-              className="text-sm font-bold tabular-nums tracking-tight"
-            >
-              {formatStopwatchTime(currentElapsedMs, true)}
-            </span>
           </div>
-          </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-col">
-            <button
-              type="button"
-              onClick={stopwatchRunning ? pauseStopwatch : startStopwatch}
-              className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:flex-none"
-            >
-              {stopwatchRunning ? (
-                <>
-                  <CirclePause aria-hidden="true" className="size-4" />
-                  Pause
-                </>
-              ) : (
-                <>
-                  <CirclePlay aria-hidden="true" className="size-4" />
-                  {currentElapsedMs > 0 ? "Resume" : "Start"}
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={resetStopwatch}
-              aria-label="Reset stopwatch and laps"
-              className="flex size-11 shrink-0 items-center justify-center rounded-xl border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
-            >
-              <RotateCcw aria-hidden="true" className="size-4" />
-            </button>
+          <div className="flex min-w-0 w-full flex-col items-center gap-3 sm:items-start">
+            <div className="text-center sm:text-left">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Workout time
+              </p>
+              <p
+                role="timer"
+                aria-label={`Total workout time: ${formatStopwatchTime(currentElapsedMs, true)}`}
+                className="mt-1 text-4xl font-bold tabular-nums tracking-tight sm:text-3xl lg:text-4xl"
+              >
+                {formatStopwatchTime(currentElapsedMs, true)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {stopwatchRunning ? "Workout in progress" : currentElapsedMs > 0 ? "Paused" : "Ready when you are"}
+              </p>
+            </div>
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <button
+                type="button"
+                onClick={stopwatchRunning ? pauseStopwatch : startStopwatch}
+                className="inline-flex h-11 min-w-32 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:flex-none"
+              >
+                {stopwatchRunning ? (
+                  <>
+                    <CirclePause aria-hidden="true" className="size-4" />
+                    Pause
+                  </>
+                ) : (
+                  <>
+                    <CirclePlay aria-hidden="true" className="size-4" />
+                    {currentElapsedMs > 0 ? "Resume" : "Start workout"}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={recordLap}
+                disabled={!stopwatchRunning}
+                className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border bg-background px-3 text-sm font-semibold transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+              >
+                <Flag aria-hidden="true" className="size-4" />
+                Log set
+              </button>
+              <button
+                type="button"
+                onClick={resetStopwatch}
+                aria-label="Reset workout timer and laps"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border bg-background px-3 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              >
+                <RotateCcw aria-hidden="true" className="size-4" />
+                <span>Reset</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-orange-500/15 bg-orange-500/[0.04] p-4">
+        <div className="flex flex-col justify-between rounded-2xl border border-orange-500/20 bg-orange-500/[0.05] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-700 dark:text-orange-300">
-                REST
+                Rest timer
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                90-second recovery timer
+                Take a 90-second break between sets
               </p>
             </div>
-            <span
-              role="timer"
-              aria-label={`Rest timer ${formatRestTime(restSeconds)}`}
-              className="text-2xl font-bold tabular-nums tracking-tight"
-            >
-              {formatRestTime(restSeconds)}
-            </span>
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-orange-800/70 dark:text-orange-200/70">
+                Rest remaining
+              </p>
+              <span
+                role="timer"
+                aria-label={`Rest timer ${formatRestTime(restSeconds)}`}
+                className="text-3xl font-bold tabular-nums tracking-tight"
+              >
+                {formatRestTime(restSeconds)}
+              </span>
+            </div>
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             {restRunning ? (
               <button
                 type="button"
                 onClick={pauseRest}
-                className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border bg-background px-3 text-xs font-semibold hover:bg-accent"
+                className="inline-flex h-10 min-w-32 flex-1 items-center justify-center gap-1.5 rounded-lg border bg-background px-3 text-sm font-semibold hover:bg-accent"
               >
                 <CirclePause aria-hidden="true" className="size-3.5" />
                 Pause rest
@@ -462,60 +570,85 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
               <button
                 type="button"
                 onClick={startRest}
-                className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-orange-500 px-3 text-xs font-semibold text-white transition hover:bg-orange-600"
+                className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600"
               >
                 <CirclePlay aria-hidden="true" className="size-3.5" />
-                {restComplete ? "Restart rest" : "Start 90s rest"}
+                {restComplete ? "Restart rest" : restRemainingMs > 0 ? "Resume rest" : "Start 90-second rest"}
               </button>
             )}
             <button
               type="button"
               onClick={resetRest}
               aria-label="Reset rest timer"
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground hover:bg-accent"
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border bg-background px-3 text-xs font-medium text-muted-foreground hover:bg-accent"
             >
               <RotateCcw aria-hidden="true" className="size-3.5" />
+              <span>Reset</span>
+            </button>
+            <button
+              type="button"
+              onClick={enableNotifications}
+              disabled={
+                notificationPermission === "granted" ||
+                notificationPermission === "unsupported"
+              }
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border bg-background px-3 text-xs font-semibold text-muted-foreground transition hover:bg-accent disabled:cursor-default disabled:opacity-70"
+            >
+              {notificationPermission === "granted" ? (
+                <BellRing
+                  aria-hidden="true"
+                  className="size-3.5 text-emerald-600"
+                />
+              ) : (
+                <Bell aria-hidden="true" className="size-3.5" />
+              )}
+              {notificationPermission === "granted"
+                ? "Alerts on"
+                : notificationPermission === "unsupported"
+                  ? "Alerts unavailable"
+                  : "Enable alerts"}
             </button>
           </div>
-          {restComplete && (
-            <p role="status" className="mt-2 text-xs font-semibold text-orange-700 dark:text-orange-300">
-              Rest complete—ready for the next set.
+          {notificationError && (
+            <p role="alert" className="mt-2 text-xs text-destructive">
+              {notificationError}
             </p>
           )}
-        </div>
-      </div>
-
-      <div className="relative mt-4 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-muted/40 px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-            Elapsed since start
-          </p>
-          <p className="mt-1 text-sm font-bold tabular-nums">
-            {formatStopwatchTime(currentElapsedMs, true)}
-          </p>
-        </div>
-        <div className="rounded-xl bg-cyan-500/[0.08] px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-800 dark:text-cyan-200">
-            Since last rest
-          </p>
-          <p className="mt-1 text-sm font-bold tabular-nums">
-            {formatStopwatchTime(elapsedSinceRestMs, true)}
-          </p>
+          {restComplete && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 flex items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/10 px-3 py-2.5 text-sm text-orange-800 dark:text-orange-200"
+            >
+              <BellRing aria-hidden="true" className="size-4 shrink-0" />
+              <p>
+                <span className="font-bold">Rest complete!</span> Ready for the
+                next set.
+              </p>
+            </div>
+          )}
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-background/70 px-3 py-2.5">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-800 dark:text-cyan-200">
+                Time since last rest
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {isRestInProgress ? "Paused during rest" : "Time since your last break"}
+              </p>
+            </div>
+            <p className="text-base font-bold tabular-nums">
+              {formatStopwatchTime(elapsedSinceRestMs, true)}
+            </p>
+          </div>
         </div>
       </div>
 
       <div className="relative mt-5 border-t pt-4">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Lap &amp; set log</h3>
-          <button
-            type="button"
-            onClick={recordLap}
-            disabled={!stopwatchRunning}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border bg-background px-3 text-xs font-semibold transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Flag aria-hidden="true" className="size-3.5" />
-            Lap / log set
-          </button>
+          <div>
+            <h3 className="text-sm font-semibold">Set log</h3>
+            <p className="text-xs text-muted-foreground">Tap “Log set” after each set to record your time.</p>
+          </div>
         </div>
         {laps.length ? (
           <ol className="grid max-h-36 gap-1.5 overflow-y-auto sm:grid-cols-2">
@@ -543,8 +676,7 @@ export function WorkoutStopwatch({ lapLabel }: { lapLabel: string | null }) {
           </ol>
         ) : (
           <p className="rounded-lg bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-            Start the stopwatch, then log a lap for each set. Laps are kept for
-            this session.
+            Your logged sets will appear here.
           </p>
         )}
       </div>

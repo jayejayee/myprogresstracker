@@ -426,8 +426,8 @@ export function FocusTimer({
                 }
                 className="h-10 min-w-0 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground"
               >
-                <option value="">Choose a focus (optional)</option>
                 <option value="workout">Workout</option>
+                <option value="">No focus (optional)</option>
                 {tasks.map((task) => (
                   <option key={task.id} value={task.id}>
                     {task.title}
