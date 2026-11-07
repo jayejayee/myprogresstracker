@@ -95,6 +95,8 @@ export function WorkoutStopwatch({
   const [restStartedAt, setRestStartedAt] = useState<number | null>(null);
   const [restDurationSeconds, setRestDurationSeconds] =
     useState(DEFAULT_REST_SECONDS);
+  const [restDurationInput, setRestDurationInput] =
+    useState(String(DEFAULT_REST_SECONDS));
   const [restDurationLoaded, setRestDurationLoaded] = useState(false);
   const [restDurationStorageError, setRestDurationStorageError] =
     useState(false);
@@ -154,6 +156,7 @@ export function WorkoutStopwatch({
             throw new Error("Saved rest duration is outside the supported range.");
           }
           setRestDurationSeconds(parsedDuration);
+          setRestDurationInput(String(parsedDuration));
         }
       } catch (error) {
         console.error("Could not restore the workout rest duration.", error);
@@ -166,8 +169,10 @@ export function WorkoutStopwatch({
     return () => window.clearTimeout(timeout);
   }, []);
 
-  function changeRestDuration(value: number) {
-    const seconds = Math.round(value);
+  function changeRestDuration(value: string) {
+    setRestDurationInput(value);
+    if (!/^\d+$/.test(value)) return;
+    const seconds = Number(value);
     if (seconds < MIN_REST_SECONDS || seconds > MAX_REST_SECONDS) return;
 
     setRestDurationSeconds(seconds);
@@ -180,6 +185,17 @@ export function WorkoutStopwatch({
     } catch (error) {
       console.error("Could not save the workout rest duration.", error);
       setRestDurationStorageError(true);
+    }
+  }
+
+  function finishRestDurationEdit() {
+    const seconds = Number(restDurationInput);
+    if (
+      !/^\d+$/.test(restDurationInput) ||
+      seconds < MIN_REST_SECONDS ||
+      seconds > MAX_REST_SECONDS
+    ) {
+      setRestDurationInput(String(restDurationSeconds));
     }
   }
 
@@ -654,15 +670,15 @@ export function WorkoutStopwatch({
                 Duration
                 <input
                   id="rest-duration-seconds"
-                  type="number"
-                  min={MIN_REST_SECONDS}
-                  max={MAX_REST_SECONDS}
-                  step="1"
-                  value={restDurationSeconds}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={restDurationInput}
                   disabled={!restDurationLoaded || restRunning}
                   onChange={(event) =>
-                    changeRestDuration(event.currentTarget.valueAsNumber)
+                    changeRestDuration(event.currentTarget.value)
                   }
+                  onBlur={finishRestDurationEdit}
                   className="h-8 w-20 rounded-md border bg-background px-2 text-center text-sm font-semibold text-foreground tabular-nums disabled:opacity-60"
                   aria-describedby="rest-duration-help"
                 />
