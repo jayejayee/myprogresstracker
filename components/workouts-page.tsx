@@ -813,7 +813,6 @@ function WorkoutForm({ exercises, logs, onSave }: WorkoutFormProps) {
       weight >= 0
     );
   });
-
   return (
     <section id="log-workout" className="mb-8 scroll-mt-6 bg-card text-card-foreground sm:rounded-xl sm:border sm:p-5 sm:shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

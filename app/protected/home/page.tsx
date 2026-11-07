@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ExerciseGoalsCard } from "@/components/exercise-goals-card";
+import { FocusTimer } from "@/components/focus-timer";
 import { WorkoutStreak } from "@/components/workout-streak";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
@@ -10,6 +11,7 @@ import {
   Dumbbell,
   FolderKanban,
   Sparkles,
+  Trophy,
   TrendingUp,
 } from "lucide-react";
 
@@ -55,11 +57,11 @@ async function HomeDashboard() {
 
   if (!user) redirect("/auth/login");
 
-  const [todosResult, projectsResult, logsResult, goalsResult] =
+  const [todosResult, projectsResult, logsResult, goalsResult, exercisesResult] =
     await Promise.all([
       supabase
         .from("todolist")
-        .select("id, completedstatus")
+        .select("id, todo, completedstatus")
         .eq("userprofile", user.id),
       supabase
         .from("projects")
@@ -71,6 +73,10 @@ async function HomeDashboard() {
         .select("id, exercise_id, 1rm, goal_acheived, achieve_by, created_at")
         .eq("userprofile", user.id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("exercises")
+        .select("exercise_id, primary_muscle_group")
+        .eq("userprofile", user.id),
     ]);
 
   const todos = todosResult.data ?? [];
@@ -80,6 +86,7 @@ async function HomeDashboard() {
     : 0;
   const projects = projectsResult.data ?? [];
   const logs = logsResult.data ?? [];
+  const exercises = exercisesResult.data ?? [];
   const workoutTimestamps = logs.map((log) => log.created_at);
   const goals = goalsResult.data ?? [];
   const workoutCount = new Set(
@@ -88,6 +95,81 @@ async function HomeDashboard() {
         log.workout_id ?? `legacy-${log.created_at.slice(0, 10)}`,
     ),
   );
+  const localDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const today = new Date();
+  const workoutSessionsByDay = new Map<string, Set<string>>();
+  for (const log of logs) {
+    const dateKey = localDateKey(new Date(log.created_at));
+    const sessions = workoutSessionsByDay.get(dateKey) ?? new Set<string>();
+    sessions.add(
+      log.workout_id == null ? `legacy-${dateKey}` : `workout-${log.workout_id}`,
+    );
+    workoutSessionsByDay.set(dateKey, sessions);
+  }
+  const weekActivity = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - index));
+    const dateKey = localDateKey(date);
+    return {
+      dateKey,
+      day: new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date),
+      date: new Intl.DateTimeFormat(undefined, { day: "numeric" }).format(date),
+      isToday: index === 6,
+      workouts: workoutSessionsByDay.get(dateKey)?.size ?? 0,
+    };
+  });
+  const weeklyWorkoutCount = weekActivity.reduce(
+    (total, day) => total + day.workouts,
+    0,
+  );
+  const activeWorkoutDays = weekActivity.filter((day) => day.workouts > 0).length;
+  const peakDailyWorkouts = Math.max(1, ...weekActivity.map((day) => day.workouts));
+  const muscleGroupByExercise = new Map(
+    exercises.map((exercise) => [
+      exercise.exercise_id.trim().toLocaleLowerCase(),
+      exercise.primary_muscle_group.trim(),
+    ]),
+  );
+  const muscleGroupsByLastWorkout = new Map<string, number>();
+  for (const log of logs) {
+    const muscleGroup = muscleGroupByExercise.get(
+      log.exercise_id.trim().toLocaleLowerCase(),
+    );
+    if (!muscleGroup) continue;
+
+    const timestamp = new Date(log.created_at).getTime();
+    if (!Number.isFinite(timestamp)) continue;
+    const key = muscleGroup.toLocaleLowerCase();
+    muscleGroupsByLastWorkout.set(
+      key,
+      Math.max(muscleGroupsByLastWorkout.get(key) ?? 0, timestamp),
+    );
+  }
+  const muscleGroupBalance = [
+    ...new Map(
+      exercises
+        .map((exercise) => exercise.primary_muscle_group.trim())
+        .filter(Boolean)
+        .map((group) => [group.toLocaleLowerCase(), group] as const),
+    ).values(),
+  ]
+    .map((group) => ({
+      name: group,
+      lastTrained: muscleGroupsByLastWorkout.get(group.toLocaleLowerCase()) ?? null,
+    }))
+    .sort((first, second) => {
+      if (first.lastTrained == null) return -1;
+      if (second.lastTrained == null) return 1;
+      return first.lastTrained - second.lastTrained;
+    });
+  const dashboardNow = today.getTime();
+  const balanceCutoff = dashboardNow - 7 * 24 * 60 * 60 * 1000;
   const achievedGoals = goals.filter((goal) => goal.goal_acheived === true);
   const activeGoals = goals.filter(
     (goal) => goal.goal_acheived !== true && goal["1rm"] != null,
@@ -125,6 +207,50 @@ async function HomeDashboard() {
   const topEstimatedLifts = [...bestEstimatedLifts.values()]
     .sort((first, second) => second.estimatedOneRepMax - first.estimatedOneRepMax)
     .slice(0, 5);
+  const previousBestByExercise = new Map<string, number>();
+  let latestPersonalRecord: {
+    exercise: string;
+    weight: number;
+    reps: number;
+    estimatedOneRepMax: number;
+    previousBest: number | null;
+    createdAt: string;
+  } | null = null;
+  const chronologicalLogs = [...logs].sort(
+    (first, second) =>
+      new Date(first.created_at).getTime() -
+      new Date(second.created_at).getTime(),
+  );
+
+  for (const log of chronologicalLogs) {
+    const weight = Number(log.weight);
+    const reps = Number(log.reps);
+    if (
+      !log.exercise_id.trim() ||
+      !Number.isFinite(weight) ||
+      weight <= 0 ||
+      !Number.isInteger(reps) ||
+      reps < 1
+    ) {
+      continue;
+    }
+
+    const key = log.exercise_id.trim().toLocaleLowerCase();
+    const estimatedOneRepMax = weight * (1 + reps / 30);
+    const previousBest = previousBestByExercise.get(key);
+    if (previousBest == null || estimatedOneRepMax > previousBest) {
+      latestPersonalRecord = {
+        exercise: log.exercise_id.trim(),
+        weight,
+        reps,
+        estimatedOneRepMax,
+        previousBest: previousBest ?? null,
+        createdAt: log.created_at,
+      };
+      previousBestByExercise.set(key, estimatedOneRepMax);
+    }
+  }
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <header className="relative isolate overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-600 p-6 text-white shadow-xl shadow-sky-950/10 sm:p-8">
@@ -177,11 +303,18 @@ async function HomeDashboard() {
         </div>
       </header>
 
-      {(todosResult.error || projectsResult.error || logsResult.error || goalsResult.error) && (
+      {(todosResult.error || projectsResult.error || logsResult.error || goalsResult.error || exercisesResult.error) && (
         <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
           Some dashboard summaries could not be loaded. Visit Tasks or Workouts to see details.
         </p>
       )}
+
+      <FocusTimer
+        userId={user.id}
+        tasks={todos
+          .filter((todo) => !todo.completedstatus)
+          .map((todo) => ({ id: todo.id, title: todo.todo }))}
+      />
 
       <section aria-label="Progress summaries" className="grid gap-4 sm:grid-cols-2">
         <article className="group relative overflow-hidden rounded-2xl border bg-card p-5 text-card-foreground shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6">
@@ -257,6 +390,210 @@ async function HomeDashboard() {
           >
             View workout history <ArrowUpRight aria-hidden="true" className="size-4" />
           </Link>
+        </article>
+
+        {latestPersonalRecord && (
+          <article className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-orange-500/5 p-5 text-card-foreground shadow-sm sm:col-span-2 sm:p-6">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-8 -top-14 size-48 rounded-full bg-amber-400/15 blur-3xl"
+            />
+            <div className="relative flex flex-wrap items-center justify-between gap-5">
+              <div className="flex min-w-0 items-start gap-4">
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-300">
+                  <Trophy aria-hidden="true" className="size-6" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                    LATEST PERSONAL RECORD
+                  </p>
+                  <h2 className="mt-1 truncate text-lg font-bold">
+                    {latestPersonalRecord.exercise}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {latestPersonalRecord.weight} lbs × {latestPersonalRecord.reps} reps
+                    {" · "}
+                    {new Date(latestPersonalRecord.createdAt).toLocaleDateString()}
+                  </p>
+                  {latestPersonalRecord.previousBest != null && (
+                    <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                      Up{" "}
+                      {new Intl.NumberFormat(undefined, {
+                        maximumFractionDigits: 1,
+                      }).format(
+                        latestPersonalRecord.estimatedOneRepMax -
+                          latestPersonalRecord.previousBest,
+                      )}{" "}
+                      lbs estimated 1RM from your previous best
+                    </p>
+                  )}
+                  {latestPersonalRecord.previousBest == null && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Your first logged estimated 1RM for this exercise.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="relative flex shrink-0 items-end gap-3">
+                <div className="text-right">
+                  <p className="text-3xl font-bold tracking-tight tabular-nums">
+                    {new Intl.NumberFormat(undefined, {
+                      maximumFractionDigits: 1,
+                    }).format(latestPersonalRecord.estimatedOneRepMax)}
+                    <span className="ml-1 text-sm font-semibold">lbs</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">estimated 1RM</p>
+                </div>
+                <Link
+                  href="/protected/workouts/history"
+                  aria-label="View workout history"
+                  className="mb-0.5 flex size-9 items-center justify-center rounded-xl border bg-background/70 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                >
+                  <ArrowUpRight aria-hidden="true" className="size-4" />
+                </Link>
+              </div>
+            </div>
+          </article>
+        )}
+
+        <article className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-sky-500/5 p-5 text-card-foreground shadow-sm sm:col-span-2 sm:p-6">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-10 -top-20 size-48 rounded-full bg-sky-400/10 blur-3xl"
+          />
+          <div className="relative flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-600 dark:text-sky-400">
+                YOUR LAST 7 DAYS
+              </p>
+              <h2 className="mt-1 text-lg font-semibold">Training rhythm</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{weeklyWorkoutCount}</span>{" "}
+              {weeklyWorkoutCount === 1 ? "workout" : "workouts"} ·{" "}
+              <span className="font-semibold text-foreground">{activeWorkoutDays}</span>{" "}
+              active {activeWorkoutDays === 1 ? "day" : "days"}
+            </p>
+          </div>
+          <div className="relative mt-5 grid grid-cols-7 gap-2 sm:gap-3">
+            {weekActivity.map((day) => (
+              <div
+                key={day.dateKey}
+                className={`flex min-w-0 flex-col items-center rounded-xl px-1 py-3 sm:px-2 ${
+                  day.isToday ? "bg-sky-500/10 ring-1 ring-sky-500/20" : "bg-muted/35"
+                }`}
+                aria-label={`${day.day}, ${day.date}: ${day.workouts} ${
+                  day.workouts === 1 ? "workout" : "workouts"
+                }`}
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+                  {day.day}
+                </span>
+                <span className="mt-1 text-xs font-medium tabular-nums text-muted-foreground">
+                  {day.date}
+                </span>
+                <div className="mt-3 flex h-12 items-end">
+                  <div
+                    className={`w-5 rounded-full transition-all sm:w-7 ${
+                      day.workouts > 0
+                        ? day.isToday
+                          ? "bg-gradient-to-t from-blue-600 to-sky-400"
+                          : "bg-gradient-to-t from-sky-600/80 to-cyan-400"
+                        : "h-2 bg-muted-foreground/15"
+                    }`}
+                    style={
+                      day.workouts > 0
+                        ? { height: `${Math.max(14, (day.workouts / peakDailyWorkouts) * 48)}px` }
+                        : undefined
+                    }
+                  />
+                </div>
+                <span className="mt-2 text-[10px] font-bold tabular-nums text-foreground/80">
+                  {day.workouts || "·"}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="relative mt-4 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Each bar represents workouts logged that day.
+            </p>
+            <Link
+              href="/protected/workouts/history"
+              className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:gap-1.5"
+            >
+              History <ArrowUpRight aria-hidden="true" className="size-4" />
+            </Link>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:col-span-2 sm:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                RECOVERY SNAPSHOT
+              </p>
+              <h2 className="mt-1 text-lg font-semibold">Muscle-group balance</h2>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Amber means it’s been 7+ days or it hasn’t been logged yet.
+            </p>
+          </div>
+          {muscleGroupBalance.length ? (
+            <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {muscleGroupBalance.map((group) => {
+                const needsAttention =
+                  group.lastTrained == null || group.lastTrained < balanceCutoff;
+                const lastTrainedLabel =
+                  group.lastTrained == null
+                    ? "Not logged yet"
+                    : new Intl.RelativeTimeFormat(undefined, {
+                        numeric: "auto",
+                      }).format(
+                        -Math.floor(
+                          (dashboardNow - group.lastTrained) / (24 * 60 * 60 * 1000),
+                        ),
+                        "day",
+                      );
+
+                return (
+                  <li
+                    key={group.name}
+                    className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-3 ${
+                      needsAttention
+                        ? "border-amber-500/20 bg-amber-500/[0.06]"
+                        : "border-emerald-500/15 bg-emerald-500/[0.04]"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span
+                        aria-hidden="true"
+                        className={`size-2.5 shrink-0 rounded-full ${
+                          needsAttention ? "bg-amber-500" : "bg-emerald-500"
+                        }`}
+                      />
+                      <span className="truncate text-sm font-semibold">
+                        {group.name}
+                      </span>
+                    </span>
+                    <span
+                      className={`shrink-0 text-xs ${
+                        needsAttention
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-emerald-700 dark:text-emerald-300"
+                      }`}
+                    >
+                      {lastTrainedLabel}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-xl bg-muted/40 p-4 text-sm text-muted-foreground">
+              Add exercises to your library to see your muscle-group balance.
+            </p>
+          )}
         </article>
 
         <ExerciseGoalsCard
